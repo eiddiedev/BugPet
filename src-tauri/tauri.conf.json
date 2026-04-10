@@ -1,0 +1,41 @@
+{
+  "$schema": "https://schema.tauri.app/config/1.5.json",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "devPath": "http://localhost:5173",
+    "distDir": "../dist"
+  },
+  "package": {
+    "productName": "BugPet",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "macOSPrivateApi": true,
+    "allowlist": {
+      "all": false
+    },
+    "bundle": {
+      "active": false,
+      "identifier": "com.bugpet.app"
+    },
+    "security": {
+      "csp": null
+    },
+    "updater": {
+      "active": false
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "BugPet",
+        "width": 320,
+        "height": 240,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true
+      }
+    ]
+  }
+}

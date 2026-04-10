@@ -1,0 +1,102 @@
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  user-select: none;
+}
+
+.pet-scene {
+  position: relative;
+  width: min(100%, 240px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 208px;
+}
+
+.bubble {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%) translateY(10px) scale(0.94);
+  max-width: 220px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 20px;
+  background: rgba(249, 255, 252, 0.95);
+  box-shadow: 0 18px 35px rgba(15, 23, 42, 0.15);
+  backdrop-filter: blur(14px);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 160ms ease,
+    transform 180ms ease;
+}
+
+.bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -10px;
+  width: 18px;
+  height: 18px;
+  background: rgba(249, 255, 252, 0.95);
+  border-right: 1px solid rgba(255, 255, 255, 0.72);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.72);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.bubble-label {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #0f766e;
+  margin-bottom: 6px;
+}
+
+.bubble-text {
+  font-size: 0.96rem;
+  line-height: 1.35;
+  color: #0f172a;
+}
+
+.pet-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 176px;
+  height: 176px;
+  cursor: grab;
+}
+
+.pet-shadow {
+  position: absolute;
+  bottom: 10px;
+  width: 118px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.18);
+  filter: blur(14px);
+}
+
+.pet-art {
+  position: relative;
+  width: 168px;
+  height: 168px;
+  object-fit: contain;
+  image-rendering: auto;
+}
+
+.pet-wrap:active {
+  cursor: grabbing;
+}
+
+.pet-scene:hover .bubble {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
