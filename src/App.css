@@ -15,17 +15,18 @@
   align-items: center;
   justify-content: flex-end;
   min-height: 208px;
+  padding-top: 72px;
 }
 
 .bubble {
   position: absolute;
-  top: 0;
+  top: 30px;
   left: 50%;
-  transform: translateX(-50%) translateY(10px) scale(0.94);
-  max-width: 220px;
-  padding: 14px 16px;
+  transform: translateX(-50%) translateY(6px) scale(0.94);
+  max-width: 172px;
+  padding: 10px 12px;
   border: 1px solid rgba(255, 255, 255, 0.72);
-  border-radius: 20px;
+  border-radius: 16px;
   background: rgba(249, 255, 252, 0.95);
   box-shadow: 0 18px 35px rgba(15, 23, 42, 0.15);
   backdrop-filter: blur(14px);
@@ -40,9 +41,9 @@
   content: "";
   position: absolute;
   left: 50%;
-  bottom: -10px;
-  width: 18px;
-  height: 18px;
+  bottom: -8px;
+  width: 14px;
+  height: 14px;
   background: rgba(249, 255, 252, 0.95);
   border-right: 1px solid rgba(255, 255, 255, 0.72);
   border-bottom: 1px solid rgba(255, 255, 255, 0.72);
@@ -50,17 +51,17 @@
 }
 
 .bubble-label {
-  font-size: 0.72rem;
+  font-size: 0.62rem;
   font-weight: 800;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: #0f766e;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .bubble-text {
-  font-size: 0.96rem;
-  line-height: 1.35;
+  font-size: 0.78rem;
+  line-height: 1.28;
   color: #0f172a;
 }
 
@@ -69,25 +70,25 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 176px;
-  height: 176px;
+  width: 82px;
+  height: 82px;
   cursor: grab;
 }
 
 .pet-shadow {
   position: absolute;
-  bottom: 10px;
-  width: 118px;
-  height: 22px;
+  bottom: 6px;
+  width: 52px;
+  height: 12px;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.18);
-  filter: blur(14px);
+  filter: blur(8px);
 }
 
 .pet-art {
   position: relative;
-  width: 168px;
-  height: 168px;
+  width: 72px;
+  height: 72px;
   object-fit: contain;
   image-rendering: auto;
 }
