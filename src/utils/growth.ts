@@ -2,6 +2,7 @@ import type { ToolKind } from './activityMonitor'
 import type { PetState } from './stateEngine'
 
 export type PetLevel = 1 | 2 | 3
+export type PetToolKind = Exclude<ToolKind, 'other'>
 
 export interface BugPetProfile {
   xp: number
@@ -23,7 +24,10 @@ export interface GrowthSnapshot {
   isMinLevel: boolean
 }
 
+export type GrowthSnapshotMap = Record<PetToolKind, GrowthSnapshot>
+
 const STORAGE_KEY = 'bugpet-progress-v1'
+const PET_TOOLS: PetToolKind[] = ['bugcat', 'trae', 'codex', 'claudecode']
 const FOCUSED_XP_INTERVAL_MS = 60_000
 const CHAOTIC_XP_INTERVAL_MS = 240_000
 const LEVEL_2_XP = 600
@@ -52,130 +56,144 @@ const LEVEL_UP_MESSAGES: Record<Exclude<PetLevel, 1>, string[]> = {
 }
 
 export class GrowthEngine {
-  private profile: BugPetProfile
+  private profiles: Record<PetToolKind, BugPetProfile>
   private lastTickAt = Date.now()
 
   constructor() {
-    this.profile = loadProfile()
+    this.profiles = loadProfiles()
   }
 
-  getSnapshot(): GrowthSnapshot {
-    return toSnapshot(this.profile)
+  getSnapshot(tool: PetToolKind): GrowthSnapshot {
+    return toSnapshot(this.profiles[tool])
   }
 
-  update(state: PetState, toolKind: ToolKind, now = Date.now()): GrowthSnapshot {
+  getAllSnapshots(): GrowthSnapshotMap {
+    return PET_TOOLS.reduce(
+      (accumulator, tool) => {
+        accumulator[tool] = toSnapshot(this.profiles[tool])
+        return accumulator
+      },
+      {} as GrowthSnapshotMap,
+    )
+  }
+
+  update(state: PetState, activeToolKind: ToolKind, selectedTool: PetToolKind, now = Date.now()): GrowthSnapshot {
     const elapsed = Math.max(0, Math.min(now - this.lastTickAt, MAX_ELAPSED_MS))
     this.lastTickAt = now
 
-    const previousLevel = this.profile.level
+    const profile = this.profiles[selectedTool]
+    const previousLevel = profile.level
     let dirty = false
 
-    if (this.profile.xp >= MAX_XP) {
-      if (this.profile.focusedMsCarry !== 0 || this.profile.chaoticMsCarry !== 0) {
-        this.profile.focusedMsCarry = 0
-        this.profile.chaoticMsCarry = 0
+    if (profile.xp >= MAX_XP) {
+      if (profile.focusedMsCarry !== 0 || profile.chaoticMsCarry !== 0) {
+        profile.focusedMsCarry = 0
+        profile.chaoticMsCarry = 0
         dirty = true
       }
 
       if (dirty) {
-        saveProfile(this.profile)
+        saveProfiles(this.profiles)
       }
 
-      return toSnapshot(this.profile)
+      return toSnapshot(profile)
     }
 
-    if (isTrackableTool(toolKind)) {
+    if (activeToolKind !== 'other') {
       if (state === 'focused') {
-        this.profile.focusedMsCarry += elapsed
+        profile.focusedMsCarry += elapsed
       } else if (state === 'chaotic') {
-        this.profile.chaoticMsCarry += elapsed
+        profile.chaoticMsCarry += elapsed
       }
 
-      const focusedXp = Math.floor(this.profile.focusedMsCarry / FOCUSED_XP_INTERVAL_MS)
-      const chaoticXp = Math.floor(this.profile.chaoticMsCarry / CHAOTIC_XP_INTERVAL_MS)
+      const focusedXp = Math.floor(profile.focusedMsCarry / FOCUSED_XP_INTERVAL_MS)
+      const chaoticXp = Math.floor(profile.chaoticMsCarry / CHAOTIC_XP_INTERVAL_MS)
       const gainedXp = focusedXp + chaoticXp
 
       if (focusedXp > 0) {
-        this.profile.focusedMsCarry %= FOCUSED_XP_INTERVAL_MS
+        profile.focusedMsCarry %= FOCUSED_XP_INTERVAL_MS
         dirty = true
       }
 
       if (chaoticXp > 0) {
-        this.profile.chaoticMsCarry %= CHAOTIC_XP_INTERVAL_MS
+        profile.chaoticMsCarry %= CHAOTIC_XP_INTERVAL_MS
         dirty = true
       }
 
       if (gainedXp > 0) {
-        this.profile.xp = clampXp(this.profile.xp + gainedXp)
-        this.profile.level = levelForXp(this.profile.xp)
+        profile.xp = clampXp(profile.xp + gainedXp)
+        profile.level = levelForXp(profile.xp)
 
-        if (this.profile.xp >= MAX_XP) {
-          this.profile.focusedMsCarry = 0
-          this.profile.chaoticMsCarry = 0
+        if (profile.xp >= MAX_XP) {
+          profile.focusedMsCarry = 0
+          profile.chaoticMsCarry = 0
         }
 
         dirty = true
       }
     }
 
-    const leveledUp = this.profile.level > previousLevel
-    const levelUpMessage = leveledUp ? pickLevelUpMessage(this.profile.level) : null
+    const leveledUp = profile.level > previousLevel
+    const levelUpMessage = leveledUp ? pickLevelUpMessage(profile.level) : null
 
     if (dirty || leveledUp) {
-      saveProfile(this.profile)
+      saveProfiles(this.profiles)
     }
 
-    return toSnapshot(this.profile, leveledUp, levelUpMessage)
+    return toSnapshot(profile, leveledUp, levelUpMessage)
   }
 
-  applyDebugXp(amount: number, now = Date.now()): GrowthSnapshot {
+  applyDebugXp(tool: PetToolKind, amount: number, now = Date.now()): GrowthSnapshot {
     this.lastTickAt = now
 
     if (amount === 0) {
-      return toSnapshot(this.profile)
+      return toSnapshot(this.profiles[tool])
     }
 
-    const previousLevel = this.profile.level
-    this.profile.xp = clampXp(this.profile.xp + amount)
-    this.profile.level = levelForXp(this.profile.xp)
+    const profile = this.profiles[tool]
+    const previousLevel = profile.level
+    profile.xp = clampXp(profile.xp + amount)
+    profile.level = levelForXp(profile.xp)
 
-    if (this.profile.xp >= MAX_XP) {
-      this.profile.focusedMsCarry = 0
-      this.profile.chaoticMsCarry = 0
+    if (profile.xp >= MAX_XP) {
+      profile.focusedMsCarry = 0
+      profile.chaoticMsCarry = 0
     }
 
-    const leveledUp = this.profile.level > previousLevel
-    const levelUpMessage = leveledUp ? pickLevelUpMessage(this.profile.level) : null
+    const leveledUp = profile.level > previousLevel
+    const levelUpMessage = leveledUp ? pickLevelUpMessage(profile.level) : null
 
-    saveProfile(this.profile)
+    saveProfiles(this.profiles)
 
-    return toSnapshot(this.profile, leveledUp, levelUpMessage)
+    return toSnapshot(profile, leveledUp, levelUpMessage)
   }
 
-  jumpToNextLevel(now = Date.now()): GrowthSnapshot {
+  jumpToNextLevel(tool: PetToolKind, now = Date.now()): GrowthSnapshot {
     this.lastTickAt = now
 
-    if (this.profile.level === 3) {
-      return toSnapshot(this.profile)
+    const profile = this.profiles[tool]
+    if (profile.level === 3) {
+      return toSnapshot(profile)
     }
 
-    const nextTarget = this.profile.level === 1 ? LEVEL_2_XP : LEVEL_3_XP
-    const gainedXp = Math.max(0, nextTarget - this.profile.xp)
+    const nextTarget = profile.level === 1 ? LEVEL_2_XP : LEVEL_3_XP
+    const gainedXp = Math.max(0, nextTarget - profile.xp)
 
-    return this.applyDebugXp(gainedXp, now)
+    return this.applyDebugXp(tool, gainedXp, now)
   }
 
-  jumpToPreviousLevel(now = Date.now()): GrowthSnapshot {
+  jumpToPreviousLevel(tool: PetToolKind, now = Date.now()): GrowthSnapshot {
     this.lastTickAt = now
 
-    if (this.profile.level === 1) {
-      return toSnapshot(this.profile)
+    const profile = this.profiles[tool]
+    if (profile.level === 1) {
+      return toSnapshot(profile)
     }
 
-    const previousTarget = this.profile.level === 3 ? LEVEL_3_XP - 1 : LEVEL_2_XP - 1
-    const delta = previousTarget - this.profile.xp
+    const previousTarget = profile.level === 3 ? LEVEL_3_XP - 1 : LEVEL_2_XP - 1
+    const delta = previousTarget - profile.xp
 
-    return this.applyDebugXp(delta, now)
+    return this.applyDebugXp(tool, delta, now)
   }
 }
 
@@ -183,36 +201,69 @@ export function getLevelLabel(level: PetLevel): string {
   return `Lv.${level}`
 }
 
-function loadProfile(): BugPetProfile {
+function loadProfiles(): Record<PetToolKind, BugPetProfile> {
+  const fallback = createDefaultProfiles()
+
   if (typeof window === 'undefined') {
-    return { ...DEFAULT_PROFILE }
+    return fallback
   }
 
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (!raw) {
-      return { ...DEFAULT_PROFILE }
+      return fallback
     }
 
-    const parsed = JSON.parse(raw) as Partial<BugPetProfile>
+    const parsed = JSON.parse(raw) as Partial<Record<PetToolKind, Partial<BugPetProfile>>> & Partial<BugPetProfile>
 
-    return normalizeProfile(parsed)
+    if (looksLikeLegacyProfile(parsed)) {
+      const legacyProfile = normalizeProfile(parsed)
+      return PET_TOOLS.reduce(
+        (accumulator, tool) => {
+          accumulator[tool] = { ...legacyProfile }
+          return accumulator
+        },
+        {} as Record<PetToolKind, BugPetProfile>,
+      )
+    }
+
+    return PET_TOOLS.reduce(
+      (accumulator, tool) => {
+        accumulator[tool] = normalizeProfile(parsed[tool] ?? {})
+        return accumulator
+      },
+      {} as Record<PetToolKind, BugPetProfile>,
+    )
   } catch (error) {
     console.warn('Failed to load BugPet profile from localStorage.', error)
-    return { ...DEFAULT_PROFILE }
+    return fallback
   }
 }
 
-function saveProfile(profile: BugPetProfile): void {
+function saveProfiles(profiles: Record<PetToolKind, BugPetProfile>): void {
   if (typeof window === 'undefined') {
     return
   }
 
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(profile))
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(profiles))
   } catch (error) {
     console.warn('Failed to save BugPet profile to localStorage.', error)
   }
+}
+
+function createDefaultProfiles(): Record<PetToolKind, BugPetProfile> {
+  return PET_TOOLS.reduce(
+    (accumulator, tool) => {
+      accumulator[tool] = { ...DEFAULT_PROFILE }
+      return accumulator
+    },
+    {} as Record<PetToolKind, BugPetProfile>,
+  )
+}
+
+function looksLikeLegacyProfile(input: Partial<Record<PetToolKind, Partial<BugPetProfile>>> & Partial<BugPetProfile>): boolean {
+  return typeof input.xp === 'number' || typeof input.level === 'number'
 }
 
 function normalizeProfile(input: Partial<BugPetProfile>): BugPetProfile {
@@ -292,10 +343,6 @@ function pickLevelUpMessage(level: PetLevel): string | null {
 
   const pool = LEVEL_UP_MESSAGES[level]
   return pool[Math.floor(Math.random() * pool.length)]
-}
-
-function isTrackableTool(toolKind: ToolKind): boolean {
-  return toolKind === 'trae' || toolKind === 'codex' || toolKind === 'claudecode'
 }
 
 function clampXp(xp: number): number {

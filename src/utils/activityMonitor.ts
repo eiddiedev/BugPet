@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/tauri'
 
-export type ToolKind = 'trae' | 'codex' | 'claudecode' | 'other'
+export type ToolKind = 'bugcat' | 'trae' | 'codex' | 'claudecode' | 'other'
 
 export interface ActivitySnapshot {
   appName: string

@@ -33,12 +33,13 @@
       {
         "label": "main",
         "title": "BugPet",
-        "width": 380,
-        "height": 420,
+        "width": 240,
+        "height": 260,
         "resizable": false,
         "decorations": false,
         "transparent": true,
-        "alwaysOnTop": true
+        "alwaysOnTop": true,
+        "visible": true
       }
     ]
   }
