@@ -1082,6 +1082,12 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
         whitelistItem.target = self
         menu.addItem(whitelistItem)
 
+        menu.addItem(.separator())
+
+        let quitItem = NSMenuItem(title: localized("退出", "Quit"), action: #selector(handleQuit), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
+
         menu.popUp(positioning: nil, at: NSPoint(x: -170, y: settingsButton.bounds.minY - 4), in: settingsButton)
     }
 
@@ -1157,6 +1163,10 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
         whitelistPopover.animates = true
         whitelistPopover.contentViewController = controller
         whitelistPopover.show(relativeTo: settingsButton.bounds, of: settingsButton, preferredEdge: .maxY)
+    }
+
+    @objc private func handleQuit() {
+        NSApp.terminate(nil)
     }
 
     @objc private func handlePreviousYear() {

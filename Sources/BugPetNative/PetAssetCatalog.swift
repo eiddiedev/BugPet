@@ -72,7 +72,8 @@ enum PetAssetCatalog {
                 continue
             }
 
-            frames.append(SKTexture(cgImage: cgImage))
+            let processedImage = processImageForTransparency(cgImage)
+            frames.append(SKTexture(cgImage: processedImage))
             totalDuration += gifFrameDuration(source: source, index: index)
         }
 
@@ -102,5 +103,57 @@ enum PetAssetCatalog {
         }
 
         return 0.1
+    }
+
+    private static func processImageForTransparency(_ cgImage: CGImage) -> CGImage {
+        let width = cgImage.width
+        let height = cgImage.height
+        let bitsPerComponent = 8
+        let bytesPerPixel = 4
+        let bytesPerRow = bytesPerPixel * width
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGImageAlphaInfo.premultipliedLast.rawValue
+
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: bitsPerComponent,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else {
+            return cgImage
+        }
+
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        guard let data = context.data else {
+            return cgImage
+        }
+
+        let pixels = data.bindMemory(to: UInt8.self, capacity: width * height * bytesPerPixel)
+
+        for y in 0 ..< height {
+            for x in 0 ..< width {
+                let index = (y * width + x) * bytesPerPixel
+                let red = pixels[index]
+                let green = pixels[index + 1]
+                let blue = pixels[index + 2]
+                let alpha = pixels[index + 3]
+
+                if red > 240 && green > 240 && blue > 240 {
+                    pixels[index + 3] = 0
+                } else {
+                    pixels[index + 3] = alpha
+                }
+            }
+        }
+
+        guard let processedCGImage = context.makeImage() else {
+            return cgImage
+        }
+
+        return processedCGImage
     }
 }

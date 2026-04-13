@@ -177,20 +177,41 @@ final class PetScene: SKScene {
             return
         }
 
-        if let animatedTexture = animatedTexture(for: currentPet, level: currentLevel) {
-            petNode.texture = animatedTexture.frames.first
-            let loop = SKAction.repeatForever(
-                .animate(with: animatedTexture.frames, timePerFrame: animatedTexture.timePerFrame, resize: false, restore: false)
-            )
-            petNode.run(loop, withKey: "idle-switch")
-            return
+        if currentPet == .bugcat, (currentLevel == .two || currentLevel == .three) {
+            if let animatedTexture = animatedTexture(for: currentPet, level: currentLevel) {
+                petNode.texture = animatedTexture.frames.first
+                let occasionalAnimation = SKAction.sequence([
+                    .wait(forDuration: Double.random(in: 5.0 ... 10.0)),
+                    .run { [weak self] in
+                        guard let self else { return }
+                        let loop = SKAction.sequence([
+                            .animate(with: animatedTexture.frames, timePerFrame: animatedTexture.timePerFrame, resize: false, restore: false),
+                            .wait(forDuration: 1.0),
+                            .run { [weak self] in
+                                self?.petNode.texture = animatedTexture.frames.first
+                            }
+                        ])
+                        self.petNode.run(loop, withKey: "occasional-animation")
+                    },
+                    .run { [weak self] in
+                        self?.scheduleIdleAnimation()
+                    }
+                ])
+                petNode.run(occasionalAnimation, withKey: "idle-switch")
+                return
+            }
         }
 
         petNode.texture = displayTexture(for: currentPet, level: currentLevel)
     }
 
     private func displayTexture(for pet: PetKind, level: PetLevel) -> SKTexture {
-        PetAssetCatalog.texture(for: pet, level: level)
+        if pet == .bugcat, (level == .two || level == .three) {
+            if let animatedTexture = animatedTexture(for: pet, level: level) {
+                return animatedTexture.frames.first ?? PetAssetCatalog.texture(for: pet, level: level)
+            }
+        }
+        return PetAssetCatalog.texture(for: pet, level: level)
     }
 
     private func animatedTexture(for pet: PetKind, level: PetLevel) -> PetAssetCatalog.AnimatedTexture? {
