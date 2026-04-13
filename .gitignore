@@ -1,3 +1,10 @@
+.build/
+.swiftpm/
+.DS_Store
+.idea/
+.vscode/
+
+# Legacy folders from the previous Tauri build.
 node_modules/
 dist/
 src-tauri/target/
