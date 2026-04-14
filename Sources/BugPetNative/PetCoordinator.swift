@@ -138,6 +138,7 @@ final class PetCoordinator {
             selectedPet: selectedPet,
             selectedPetLevel: selectedSnapshot.level,
             petDisplayScale: preferences.petDisplayScale,
+            language: preferences.language,
             showsStatusBar: preferences.showsStatusBar,
             state: stateUpdate.state,
             appName: stateUpdate.appName,

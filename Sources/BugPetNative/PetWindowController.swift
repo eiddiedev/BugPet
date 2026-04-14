@@ -39,9 +39,7 @@ final class PetWindowController: NSWindowController, NSPopoverDelegate {
         }
     }
     var onHoverChange: ((Bool) -> Void)? {
-        didSet {
-            rootView.onHoverChange = onHoverChange
-        }
+        didSet {}
     }
     var onDragStart: (() -> Void)? {
         didSet {
@@ -54,6 +52,9 @@ final class PetWindowController: NSWindowController, NSPopoverDelegate {
     private let panelController: ControlPanelViewController
     private let popover = NSPopover()
     private var currentLanguage: AppLanguage = .zh
+    private var globalMouseMonitor: Any?
+    private var localMouseMonitor: Any?
+    private var currentHoverState = false
 
     init(preferences: PreferencesStore) {
         panelController = ControlPanelViewController(preferences: preferences)
@@ -71,6 +72,7 @@ final class PetWindowController: NSWindowController, NSPopoverDelegate {
         window.isReleasedWhenClosed = false
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        window.acceptsMouseMovedEvents = true
         window.contentView = rootView
 
         super.init(window: window)
@@ -84,6 +86,11 @@ final class PetWindowController: NSWindowController, NSPopoverDelegate {
         rootView.onContextMenuRequest = { [weak self] anchorView in
             self?.togglePanel(relativeTo: anchorView)
         }
+        rootView.onHoverChange = { [weak self] isHovering in
+            self?.handleHoverChange(isHovering)
+        }
+
+        installHoverMonitors()
 
         window.center()
         window.orderFrontRegardless()
@@ -135,6 +142,37 @@ final class PetWindowController: NSWindowController, NSPopoverDelegate {
 
     func popoverDidClose(_ notification: Notification) {
         onPanelVisibilityChange?(false)
+    }
+
+    private func installHoverMonitors() {
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .leftMouseDown, .rightMouseDown]
+        ) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.updateHoverFromMouseLocation()
+            }
+        }
+
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .leftMouseDown, .rightMouseDown]
+        ) { [weak self] event in
+            self?.updateHoverFromMouseLocation()
+            return event
+        }
+    }
+
+    private func updateHoverFromMouseLocation() {
+        let isHovering = rootView.containsPet(screenPoint: NSEvent.mouseLocation)
+        handleHoverChange(isHovering)
+    }
+
+    private func handleHoverChange(_ isHovering: Bool) {
+        guard currentHoverState != isHovering else {
+            return
+        }
+
+        currentHoverState = isHovering
+        onHoverChange?(isHovering)
     }
 }
 

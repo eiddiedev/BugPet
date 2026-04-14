@@ -1176,6 +1176,10 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
         whitelistItem.target = self
         menu.addItem(whitelistItem)
 
+        let updatesItem = NSMenuItem(title: localized("检查更新", "Check for Updates"), action: #selector(handleCheckForUpdates), keyEquivalent: "")
+        updatesItem.target = self
+        menu.addItem(updatesItem)
+
         let developerItem = NSMenuItem(title: localized("开发者面板…", "Developer Panel…"), action: #selector(handleOpenDeveloperPanel), keyEquivalent: "")
         developerItem.target = self
         menu.addItem(developerItem)
@@ -1286,6 +1290,13 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
         developerPopover.animates = true
         developerPopover.contentViewController = controller
         developerPopover.show(relativeTo: settingsButton.bounds, of: settingsButton, preferredEdge: .maxY)
+    }
+
+    @objc private func handleCheckForUpdates() {
+        guard let url = URL(string: "https://github.com/eiddiedev/BugPet/releases") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func handleFusionSlotTap(_ sender: NSButton) {

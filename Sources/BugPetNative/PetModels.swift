@@ -177,6 +177,7 @@ struct PetRenderModel {
     let selectedPet: PetKind
     let selectedPetLevel: PetLevel
     let petDisplayScale: CGFloat
+    let language: AppLanguage
     let showsStatusBar: Bool
     let state: PetState
     let appName: String

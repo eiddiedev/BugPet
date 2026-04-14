@@ -3,14 +3,15 @@ import AppKit
 @MainActor
 final class SpeechBubbleView: NSView {
     private enum Metrics {
-        static let bubbleWidth: CGFloat = 168
+        static let bubbleWidth: CGFloat = 182
         static let minBubbleHeight: CGFloat = 76
-        static let maxBubbleHeight: CGFloat = 124
-        static let horizontalPadding: CGFloat = 16
+        static let maxBubbleHeight: CGFloat = 152
+        static let horizontalPadding: CGFloat = 14
         static let topPadding: CGFloat = 14
         static let bottomPadding: CGFloat = 14
         static let tailHeight: CGFloat = 14
         static let textMeasurementSlack: CGFloat = 8
+        static let bubbleInset: CGFloat = 4
     }
 
     private let bodyLabel = NSTextField(wrappingLabelWithString: "")
@@ -37,10 +38,11 @@ final class SpeechBubbleView: NSView {
         bodyLabel.font = .systemFont(ofSize: 12, weight: .medium)
         bodyLabel.textColor = NSColor(calibratedRed: 0.08, green: 0.10, blue: 0.18, alpha: 1)
         bodyLabel.maximumNumberOfLines = 0
-        bodyLabel.lineBreakMode = .byWordWrapping
+        bodyLabel.lineBreakMode = .byCharWrapping
         bodyLabel.cell?.wraps = true
         bodyLabel.cell?.usesSingleLineMode = false
         bodyLabel.cell?.isScrollable = false
+        bodyLabel.cell?.lineBreakMode = .byCharWrapping
 
         addSubview(bodyLabel)
         alphaValue = 0
@@ -55,10 +57,10 @@ final class SpeechBubbleView: NSView {
         super.layout()
 
         let bubbleRect = NSRect(
-            x: 4,
+            x: Metrics.bubbleInset,
             y: Metrics.tailHeight,
-            width: bounds.width - 8,
-            height: bounds.height - Metrics.tailHeight - 4
+            width: bounds.width - (Metrics.bubbleInset * 2),
+            height: bounds.height - Metrics.tailHeight - Metrics.bubbleInset
         )
         let roundedPath = NSBezierPath(roundedRect: bubbleRect, xRadius: 18, yRadius: 18)
         bubbleLayer.path = roundedPath.cgPath
@@ -66,9 +68,9 @@ final class SpeechBubbleView: NSView {
         let bodyHeight = max(18, measuredBodyHeight)
         let bodyY = bubbleRect.minY + Metrics.bottomPadding
         bodyLabel.frame = NSRect(
-            x: Metrics.horizontalPadding,
+            x: bubbleRect.minX + Metrics.horizontalPadding,
             y: bodyY,
-            width: bounds.width - Metrics.horizontalPadding * 2,
+            width: bubbleRect.width - Metrics.horizontalPadding * 2,
             height: min(bodyHeight, bubbleRect.height - Metrics.topPadding - Metrics.bottomPadding)
         )
 
@@ -80,14 +82,18 @@ final class SpeechBubbleView: NSView {
         tailLayer.path = tailPath.cgPath
     }
 
-    func update(title: String, text: String, isVisible: Bool) {
+    func update(title: String, text: String, language: AppLanguage, isVisible: Bool) {
+        let breakMode: NSLineBreakMode = language == .en ? .byWordWrapping : .byCharWrapping
+        bodyLabel.lineBreakMode = breakMode
+        bodyLabel.cell?.lineBreakMode = breakMode
         bodyLabel.stringValue = text
         resizeToFitCurrentText()
         animator().alphaValue = isVisible && !text.isEmpty ? 1 : 0
     }
 
     private func resizeToFitCurrentText() {
-        let availableTextWidth = Metrics.bubbleWidth - Metrics.horizontalPadding * 2
+        let bubbleInnerWidth = Metrics.bubbleWidth - (Metrics.bubbleInset * 2)
+        let availableTextWidth = bubbleInnerWidth - Metrics.horizontalPadding * 2
         let textRect = bodyLabel.attributedStringValue.boundingRect(
             with: NSSize(width: availableTextWidth, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading]

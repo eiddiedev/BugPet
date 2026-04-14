@@ -3,11 +3,18 @@ import SpriteKit
 
 @MainActor
 final class PetRootView: NSView {
+    private enum Metrics {
+        static let bubbleBaseX: CGFloat = 18
+        static let bubbleGapToPet: CGFloat = 8
+        static let statusTopMargin: CGFloat = 8
+        static let statusGapToBubble: CGFloat = 6
+    }
+
     var onContextMenuRequest: ((NSView) -> Void)?
     var onHoverChange: ((Bool) -> Void)?
     var onDragStart: (() -> Void)?
 
-    private let bubbleView = SpeechBubbleView(frame: NSRect(x: 30, y: 128, width: 160, height: 76))
+    private let bubbleView = SpeechBubbleView(frame: NSRect(x: 18, y: 128, width: 182, height: 76))
     private let petView = PetSpriteView(frame: NSRect(x: 72, y: 44, width: 76, height: 76))
     private let statusCardView = NSView(frame: NSRect(x: 36, y: 212, width: 156, height: 24))
     private let statusLabel = NSTextField(labelWithString: "")
@@ -63,11 +70,12 @@ final class PetRootView: NSView {
     }
 
     func render(model: PetRenderModel) {
-        bubbleView.update(title: model.speechLabel, text: model.speech, isVisible: model.speechVisible)
+        bubbleView.update(title: model.speechLabel, text: model.speech, language: model.language, isVisible: model.speechVisible)
         statusLabel.stringValue = model.statusText
         layoutPet(scale: model.petDisplayScale)
         petView.setDisplayScale(model.petDisplayScale)
         let showsBubbleCluster = model.speechVisible
+        layoutOverlayCluster(showsStatusBar: model.showsStatusBar && showsBubbleCluster)
         statusCardView.animator().alphaValue = model.showsStatusBar && showsBubbleCluster ? 1 : 0
         petView.setPet(model.selectedPet, level: model.selectedPetLevel)
     }
@@ -80,5 +88,31 @@ final class PetRootView: NSView {
         let originX = (bounds.width - scaledWidth) / 2
         let originY = 44 - ((scaledHeight - baseHeight) / 2)
         petView.frame = NSRect(x: originX, y: originY, width: scaledWidth, height: scaledHeight)
+    }
+
+    private func layoutOverlayCluster(showsStatusBar: Bool) {
+        let statusSize = statusCardView.frame.size
+        let petTop = petView.frame.maxY
+        let desiredBubbleY = petTop - Metrics.bubbleGapToPet
+        let maxBubbleTop = bounds.height - Metrics.statusTopMargin - (showsStatusBar ? (statusSize.height + Metrics.statusGapToBubble) : 0)
+        let bubbleY = max(56, min(desiredBubbleY, maxBubbleTop - bubbleView.frame.height))
+        bubbleView.frame.origin = NSPoint(x: Metrics.bubbleBaseX, y: bubbleY)
+
+        let statusX = (bounds.width - statusSize.width) / 2
+        let statusY = min(
+            bounds.height - statusSize.height - Metrics.statusTopMargin,
+            bubbleView.frame.maxY + Metrics.statusGapToBubble
+        )
+        statusCardView.frame.origin = NSPoint(x: statusX, y: statusY)
+    }
+
+    func containsPet(screenPoint: NSPoint) -> Bool {
+        guard let window else {
+            return false
+        }
+
+        let windowPoint = window.convertPoint(fromScreen: screenPoint)
+        let localPoint = convert(windowPoint, from: nil)
+        return petView.frame.insetBy(dx: -6, dy: -6).contains(localPoint)
     }
 }
