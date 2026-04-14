@@ -15,6 +15,7 @@ final class PetCoordinator {
     private var speechState = PetSpeechState(message: "", kind: .state, visibleUntil: .distantPast)
     private var lastStateMessage = ""
     private var levelUpVisibleUntil = Date.distantPast
+    private var welcomeVisibleUntil = Date.distantPast
 
     func start() {
         petWindowController.onLanguageChange = { [weak self] language in
@@ -53,6 +54,7 @@ final class PetCoordinator {
         petWindowController.showWindow(nil)
         petWindowController.positionNearBottomRight()
         petWindowController.updateLanguage(preferences.language)
+        triggerWelcomeSpeechIfNeeded()
 
         refresh()
         installWorkspaceObservers()
@@ -130,9 +132,15 @@ final class PetCoordinator {
         let speechVisible = !isPanelOpen &&
             !speechState.message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             (isHoveringPet || speechState.visibleUntil > reading.sampleDate)
-        let speechLabel = speechState.kind == .levelUp
-            ? SpeechCatalog.levelUpLabel(for: preferences.language)
-            : SpeechCatalog.label(for: stateUpdate.state, language: preferences.language)
+        let speechLabel: String
+        switch speechState.kind {
+        case .levelUp:
+            speechLabel = SpeechCatalog.levelUpLabel(for: preferences.language)
+        case .welcome:
+            speechLabel = SpeechCatalog.welcomeLabel(for: preferences.language)
+        case .state:
+            speechLabel = SpeechCatalog.label(for: stateUpdate.state, language: preferences.language)
+        }
 
         let renderModel = PetRenderModel(
             selectedPet: selectedPet,
@@ -174,6 +182,10 @@ final class PetCoordinator {
     }
 
     private func syncSpeech(readingDate: Date, stateUpdate: PetStateUpdate, selectedPet: PetKind, growthSnapshot: GrowthSnapshot) {
+        if readingDate < welcomeVisibleUntil {
+            return
+        }
+
         if stateUpdate.recentMessage != lastStateMessage && readingDate >= levelUpVisibleUntil {
             lastStateMessage = stateUpdate.recentMessage
             speechState = PetSpeechState(
@@ -190,6 +202,24 @@ final class PetCoordinator {
         }
     }
 
+    private func triggerWelcomeSpeechIfNeeded() {
+        guard !preferences.hasShownWelcomeSpeech else {
+            return
+        }
+
+        let visibleUntil = Date().addingTimeInterval(8)
+        let message = SpeechCatalog.welcomeLine(for: preferences.language)
+
+        guard !message.isEmpty else {
+            preferences.hasShownWelcomeSpeech = true
+            return
+        }
+
+        preferences.hasShownWelcomeSpeech = true
+        welcomeVisibleUntil = visibleUntil
+        speechState = PetSpeechState(message: message, kind: .welcome, visibleUntil: visibleUntil)
+    }
+
     private func setLanguage(_ language: AppLanguage) {
         preferences.language = language
         petWindowController.updateLanguage(language)
@@ -199,7 +229,13 @@ final class PetCoordinator {
         let selectedSnapshot = growthEngine.getSnapshot(for: selectedPet, slotIndex: selectedSlotIndex)
         let now = Date()
 
-        if speechState.kind == .levelUp, now < levelUpVisibleUntil, selectedSnapshot.level != .one {
+        if speechState.kind == .welcome, now < welcomeVisibleUntil {
+            speechState = PetSpeechState(
+                message: SpeechCatalog.welcomeLine(for: language),
+                kind: .welcome,
+                visibleUntil: welcomeVisibleUntil
+            )
+        } else if speechState.kind == .levelUp, now < levelUpVisibleUntil, selectedSnapshot.level != .one {
             speechState = PetSpeechState(
                 message: SpeechCatalog.levelUpLine(for: selectedPet, level: selectedSnapshot.level, language: language),
                 kind: .levelUp,

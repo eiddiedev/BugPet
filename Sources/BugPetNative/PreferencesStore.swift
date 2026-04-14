@@ -4,6 +4,7 @@ import Foundation
 final class PreferencesStore {
     private let defaults = UserDefaults.standard
     private let languageKey = "bugpet.native.language"
+    private let hasShownWelcomeSpeechKey = "bugpet.native.has-shown-welcome-speech"
     private let selectedPetKey = "bugpet.native.selected-pet"
     private let selectedPetSlotKey = "bugpet.native.selected-pet-slot"
     private let fusionSlotOnePetKey = "bugpet.native.fusion-slot-one-pet"
@@ -40,13 +41,30 @@ final class PreferencesStore {
     var language: AppLanguage {
         get {
             guard let rawValue = defaults.string(forKey: languageKey), let language = AppLanguage(rawValue: rawValue) else {
-                return .en
+                return preferredSystemLanguage
             }
 
             return language
         }
         set {
             defaults.set(newValue.rawValue, forKey: languageKey)
+        }
+    }
+
+    var preferredSystemLanguage: AppLanguage {
+        guard let preferred = Locale.preferredLanguages.first?.lowercased() else {
+            return .en
+        }
+
+        return preferred.hasPrefix("zh") ? .zh : .en
+    }
+
+    var hasShownWelcomeSpeech: Bool {
+        get {
+            defaults.bool(forKey: hasShownWelcomeSpeechKey)
+        }
+        set {
+            defaults.set(newValue, forKey: hasShownWelcomeSpeechKey)
         }
     }
 

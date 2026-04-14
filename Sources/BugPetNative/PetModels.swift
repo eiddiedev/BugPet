@@ -82,6 +82,7 @@ enum PetState: String {
 enum SpeechKind {
     case state
     case levelUp
+    case welcome
 }
 
 struct ActivityReading {

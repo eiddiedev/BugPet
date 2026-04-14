@@ -4,6 +4,7 @@ enum SpeechCatalog {
     typealias StateVoiceMap = [AppLanguage: [PetKind: [PetLevel: [PetState: [String]]]]]
     typealias LevelUpVoiceMap = [AppLanguage: [PetKind: [PetLevel: [String]]]]
     typealias DragVoiceMap = [AppLanguage: [PetKind: [PetLevel: [String]]]]
+    typealias WelcomeVoiceMap = [AppLanguage: [String]]
 
     private static let stateVoices: StateVoiceMap = [
         .zh: [
@@ -258,6 +259,15 @@ enum SpeechCatalog {
         ],
     ]
 
+    private static let welcomeVoices: WelcomeVoiceMap = [
+        .zh: [
+            "第一次见面呀。右键点我可以切换语言，也能打开更多选项。"
+        ],
+        .en: [
+            "Hi. Right-click me to switch languages and open more options."
+        ],
+    ]
+
     static func randomLine(for pet: PetKind, level: PetLevel, state: PetState, language: AppLanguage, avoiding previousLine: String) -> String {
         let pool = stateVoices[language]?[pet]?[level]?[state] ?? []
         let candidates = pool.filter { $0 != previousLine }
@@ -275,6 +285,10 @@ enum SpeechCatalog {
         let candidates = pool.filter { $0 != previousLine }
         let source = candidates.isEmpty ? pool : candidates
         return source.randomElement() ?? previousLine
+    }
+
+    static func welcomeLine(for language: AppLanguage) -> String {
+        welcomeVoices[language]?.randomElement() ?? ""
     }
 
     static func label(for state: PetState, language: AppLanguage) -> String {
@@ -300,6 +314,10 @@ enum SpeechCatalog {
 
     static func levelUpLabel(for language: AppLanguage) -> String {
         language == .zh ? "升级啦" : "Level Up"
+    }
+
+    static func welcomeLabel(for language: AppLanguage) -> String {
+        language == .zh ? "提示" : "Tip"
     }
 
     static func growthTitle(for language: AppLanguage) -> String {
