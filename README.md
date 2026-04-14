@@ -1,8 +1,20 @@
+<p align="center">
+  <img src="Sources/BugPetNative/Resources/pets/bugcat-level2.png" alt="BugPet Logo" width="160">
+</p>
+
 # BugPet
 
 BugPet is a native macOS desktop pet focused on coding presence, growth, and playful companionship.
 
 BugPet 是一个原生 macOS 桌宠项目，围绕 coding 专注、成长反馈和更有生命感的陪伴体验展开。
+
+## Download
+
+- Website: [bp.eiddie.top](https://bp.eiddie.top)
+
+## 下载
+
+- 在线下载：[bp.eiddie.top](https://bp.eiddie.top)
 
 ## 中文
 
