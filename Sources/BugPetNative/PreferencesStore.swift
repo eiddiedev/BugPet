@@ -40,7 +40,7 @@ final class PreferencesStore {
     var language: AppLanguage {
         get {
             guard let rawValue = defaults.string(forKey: languageKey), let language = AppLanguage(rawValue: rawValue) else {
-                return .zh
+                return .en
             }
 
             return language
