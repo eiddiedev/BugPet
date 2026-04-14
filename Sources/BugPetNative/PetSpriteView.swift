@@ -6,6 +6,7 @@ import QuartzCore
 final class PetSpriteView: SKView {
     var onContextMenu: ((NSEvent) -> Void)?
     var onHoverChange: ((Bool) -> Void)?
+    var onDragStart: (() -> Void)?
 
     private let petScene = PetScene(size: CGSize(width: 76, height: 76))
     private var trackingAreaRef: NSTrackingArea?
@@ -47,7 +48,13 @@ final class PetSpriteView: SKView {
         petScene.setDisplayScale(scale)
     }
 
+    override func layout() {
+        super.layout()
+        petScene.size = bounds.size
+    }
+
     override func mouseDown(with event: NSEvent) {
+        onDragStart?()
         petScene.beginFrightenedDrag()
 
         needsDisplay = true

@@ -5,9 +5,13 @@ final class PreferencesStore {
     private let defaults = UserDefaults.standard
     private let languageKey = "bugpet.native.language"
     private let selectedPetKey = "bugpet.native.selected-pet"
+    private let selectedPetSlotKey = "bugpet.native.selected-pet-slot"
+    private let fusionSlotOnePetKey = "bugpet.native.fusion-slot-one-pet"
+    private let fusionSlotTwoPetKey = "bugpet.native.fusion-slot-two-pet"
     private let panelThemeKey = "bugpet.native.panel-theme"
     private let showsStatusBarKey = "bugpet.native.show-status-bar"
-    private let petDisplaySizeKey = "bugpet.native.pet-display-size"
+    private let petDisplayScaleKey = "bugpet.native.pet-display-scale"
+    private let legacyPetDisplaySizeKey = "bugpet.native.pet-display-size"
     private let todoItemsKey = "bugpet.native.todo-items.v1"
     private let selectedWhitelistIDsKey = "bugpet.native.selected-whitelist-ids.v1"
     private let customWhitelistAppsKey = "bugpet.native.custom-whitelist-apps.v1"
@@ -59,6 +63,79 @@ final class PreferencesStore {
         }
     }
 
+    var selectedPetSlotIndex: Int {
+        get {
+            let value = defaults.integer(forKey: selectedPetSlotKey)
+            return value == 1 ? 1 : 0
+        }
+        set {
+            defaults.set(newValue == 1 ? 1 : 0, forKey: selectedPetSlotKey)
+        }
+    }
+
+    var fusionSlotOnePet: PetKind? {
+        get {
+            guard let rawValue = defaults.string(forKey: fusionSlotOnePetKey) else {
+                return nil
+            }
+
+            return PetKind(rawValue: rawValue)
+        }
+        set {
+            if let newValue {
+                defaults.set(newValue.rawValue, forKey: fusionSlotOnePetKey)
+            } else {
+                defaults.removeObject(forKey: fusionSlotOnePetKey)
+            }
+        }
+    }
+
+    var fusionSlotTwoPet: PetKind? {
+        get {
+            guard let rawValue = defaults.string(forKey: fusionSlotTwoPetKey) else {
+                return nil
+            }
+
+            return PetKind(rawValue: rawValue)
+        }
+        set {
+            if let newValue {
+                defaults.set(newValue.rawValue, forKey: fusionSlotTwoPetKey)
+            } else {
+                defaults.removeObject(forKey: fusionSlotTwoPetKey)
+            }
+        }
+    }
+
+    func toggleFusionPet(_ pet: PetKind, for slotIndex: Int) {
+        if slotIndex == 0 {
+            if fusionSlotOnePet == pet {
+                fusionSlotOnePet = nil
+                if fusionSlotTwoPet == pet {
+                    fusionSlotTwoPet = nil
+                }
+                return
+            }
+
+            fusionSlotOnePet = pet
+            if fusionSlotTwoPet != pet {
+                fusionSlotTwoPet = nil
+            }
+            return
+        }
+
+        guard fusionSlotOnePet == pet else {
+            return
+        }
+
+        if fusionSlotTwoPet == pet {
+            fusionSlotTwoPet = nil
+            return
+        }
+
+        fusionSlotTwoPet = pet
+    }
+
     var panelTheme: PanelTheme {
         get {
             guard let rawValue = defaults.string(forKey: panelThemeKey), let theme = PanelTheme(rawValue: rawValue) else {
@@ -95,17 +172,45 @@ final class PreferencesStore {
         }
     }
 
-    var petDisplaySize: PetDisplaySize {
+    var petDisplayScale: CGFloat {
         get {
-            guard let rawValue = defaults.string(forKey: petDisplaySizeKey),
-                  let size = PetDisplaySize(rawValue: rawValue) else {
-                return .medium
+            if defaults.object(forKey: petDisplayScaleKey) != nil {
+                let stored = defaults.double(forKey: petDisplayScaleKey)
+                return CGFloat(min(max(stored, 0.82), 2.0))
             }
 
-            return size
+            if let rawValue = defaults.string(forKey: legacyPetDisplaySizeKey) {
+                switch rawValue {
+                case "small":
+                    return 0.88
+                case "large":
+                    return 1.18
+                default:
+                    return 1.0
+                }
+            }
+
+            return 1.0
         }
         set {
-            defaults.set(newValue.rawValue, forKey: petDisplaySizeKey)
+            let normalized = min(max(Double(newValue), 0.82), 2.0)
+            defaults.set(normalized, forKey: petDisplayScaleKey)
+        }
+    }
+
+    var petDisplaySize: PetDisplaySize {
+        get {
+            let scale = petDisplayScale
+            if scale <= 0.93 {
+                return .small
+            }
+            if scale >= 1.3 {
+                return .large
+            }
+            return .medium
+        }
+        set {
+            petDisplayScale = newValue.scale
         }
     }
 

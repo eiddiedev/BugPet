@@ -85,10 +85,6 @@ final class PetStateEngine {
         now: Date,
         stateChanged: Bool
     ) -> Bool {
-        guard state != .watching else {
-            return false
-        }
-
         if stateChanged {
             return true
         }
@@ -105,7 +101,7 @@ final class PetStateEngine {
         case .chaotic:
             return reading.isCodingApp
         case .watching:
-            return false
+            return !reading.isCodingApp
         }
     }
 
@@ -118,7 +114,7 @@ final class PetStateEngine {
         case .chaotic:
             return 45
         case .watching:
-            return 90
+            return 75
         }
     }
 }

@@ -5,10 +5,11 @@ import SpriteKit
 final class PetRootView: NSView {
     var onContextMenuRequest: ((NSView) -> Void)?
     var onHoverChange: ((Bool) -> Void)?
+    var onDragStart: (() -> Void)?
 
     private let bubbleView = SpeechBubbleView(frame: NSRect(x: 30, y: 128, width: 160, height: 76))
     private let petView = PetSpriteView(frame: NSRect(x: 72, y: 44, width: 76, height: 76))
-    private let statusCardView = NSView(frame: NSRect(x: 38, y: 28, width: 144, height: 24))
+    private let statusCardView = NSView(frame: NSRect(x: 36, y: 212, width: 156, height: 24))
     private let statusLabel = NSTextField(labelWithString: "")
 
     override init(frame frameRect: NSRect) {
@@ -28,15 +29,15 @@ final class PetRootView: NSView {
         statusCardView.layer?.cornerRadius = 12
         statusCardView.layer?.borderWidth = 1
         statusCardView.layer?.borderColor = NSColor.white.withAlphaComponent(0.14).cgColor
-        statusCardView.layer?.zPosition = 20
+        statusCardView.layer?.zPosition = 2
 
         statusLabel.font = .systemFont(ofSize: 10, weight: .semibold)
         statusLabel.textColor = NSColor(calibratedWhite: 1, alpha: 0.94)
         statusLabel.alignment = .center
         statusLabel.lineBreakMode = .byTruncatingTail
-        statusLabel.frame = NSRect(x: 10, y: 4, width: 124, height: 16)
+        statusLabel.frame = NSRect(x: 12, y: 4, width: 132, height: 16)
         statusLabel.wantsLayer = true
-        statusLabel.layer?.zPosition = 21
+        statusLabel.layer?.zPosition = 3
 
         petView.onContextMenu = { [weak self] _ in
             guard let self else { return }
@@ -45,11 +46,15 @@ final class PetRootView: NSView {
         petView.onHoverChange = { [weak self] isHovering in
             self?.onHoverChange?(isHovering)
         }
+        petView.onDragStart = { [weak self] in
+            self?.onDragStart?()
+        }
 
         statusCardView.addSubview(statusLabel)
         addSubview(bubbleView)
-        addSubview(petView)
         addSubview(statusCardView)
+        addSubview(petView)
+        statusCardView.alphaValue = 0
     }
 
     @available(*, unavailable)
@@ -60,17 +65,18 @@ final class PetRootView: NSView {
     func render(model: PetRenderModel) {
         bubbleView.update(title: model.speechLabel, text: model.speech, isVisible: model.speechVisible)
         statusLabel.stringValue = model.statusText
-        layoutPet(size: model.petDisplaySize)
-        petView.setDisplayScale(model.petDisplaySize.scale)
-        statusCardView.isHidden = model.speechVisible || !model.showsStatusBar
+        layoutPet(scale: model.petDisplayScale)
+        petView.setDisplayScale(model.petDisplayScale)
+        let showsBubbleCluster = model.speechVisible
+        statusCardView.animator().alphaValue = model.showsStatusBar && showsBubbleCluster ? 1 : 0
         petView.setPet(model.selectedPet, level: model.selectedPetLevel)
     }
 
-    private func layoutPet(size: PetDisplaySize) {
+    private func layoutPet(scale: CGFloat) {
         let baseWidth: CGFloat = 76
         let baseHeight: CGFloat = 76
-        let scaledWidth = baseWidth * size.scale
-        let scaledHeight = baseHeight * size.scale
+        let scaledWidth = baseWidth * scale
+        let scaledHeight = baseHeight * scale
         let originX = (bounds.width - scaledWidth) / 2
         let originY = 44 - ((scaledHeight - baseHeight) / 2)
         petView.frame = NSRect(x: originX, y: originY, width: scaledWidth, height: scaledHeight)

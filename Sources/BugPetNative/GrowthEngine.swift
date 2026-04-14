@@ -13,16 +13,22 @@ final class GrowthEngine {
 
     private let defaults: UserDefaults
     private let storageKey = "bugpet.native.progress.v1"
+    private let secondaryStorageKey = "bugpet.native.progress.secondary.v1"
     private var profiles: [PetKind: PetProgress]
+    private var secondaryProfiles: [PetKind: PetProgress]
     private var lastTickAt = Date()
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.profiles = Self.loadProfiles(from: defaults, storageKey: storageKey)
+        self.secondaryProfiles = Self.loadSecondaryProfiles(from: defaults, storageKey: secondaryStorageKey)
     }
 
-    func getSnapshot(for pet: PetKind) -> GrowthSnapshot {
-        Self.snapshot(for: pet, progress: profiles[pet] ?? Self.defaultProgress())
+    func getSnapshot(for pet: PetKind, slotIndex: Int = 0) -> GrowthSnapshot {
+        if slotIndex == 1 {
+            return Self.snapshot(for: pet, progress: secondaryProfiles[pet] ?? Self.defaultProgress())
+        }
+        return Self.snapshot(for: pet, progress: profiles[pet] ?? Self.defaultProgress())
     }
 
     func getAllSnapshots() -> [PetKind: GrowthSnapshot] {
@@ -33,14 +39,58 @@ final class GrowthEngine {
         return snapshots
     }
 
-    func update(state: PetState, isCodingContext: Bool, selectedPet: PetKind, now: Date) -> GrowthSnapshot {
+    func getSecondarySnapshot(for pet: PetKind) -> GrowthSnapshot? {
+        guard let progress = secondaryProfiles[pet] else {
+            return nil
+        }
+        return Self.snapshot(for: pet, progress: progress)
+    }
+
+    func getAllSecondarySnapshots() -> [PetKind: GrowthSnapshot] {
+        var snapshots: [PetKind: GrowthSnapshot] = [:]
+        for pet in PetKind.allCases {
+            guard let snapshot = getSecondarySnapshot(for: pet) else {
+                continue
+            }
+            snapshots[pet] = snapshot
+        }
+        return snapshots
+    }
+
+    func canUnlockSecondary(for pet: PetKind) -> Bool {
+        getSnapshot(for: pet, slotIndex: 0).isMaxLevel
+    }
+
+    @discardableResult
+    func unlockSecondary(for pet: PetKind) -> GrowthSnapshot? {
+        guard canUnlockSecondary(for: pet) else {
+            return nil
+        }
+
+        if secondaryProfiles[pet] == nil {
+            secondaryProfiles[pet] = Self.defaultProgress()
+            persistSecondary()
+        }
+
+        return getSecondarySnapshot(for: pet)
+    }
+
+    func update(state: PetState, isCodingContext: Bool, selectedPet: PetKind, slotIndex: Int = 0, now: Date) -> GrowthSnapshot {
         let elapsed = max(0, min(now.timeIntervalSince(lastTickAt), Constants.maxElapsed))
         lastTickAt = now
 
-        guard var progress = profiles[selectedPet] else {
+        var targetProfiles = slotIndex == 1 ? secondaryProfiles : profiles
+        let persistTarget: () -> Void = slotIndex == 1 ? persistSecondary : persist
+
+        guard var progress = targetProfiles[selectedPet] else {
             let snapshot = Self.snapshot(for: selectedPet, progress: Self.defaultProgress())
-            profiles[selectedPet] = Self.defaultProgress()
-            persist()
+            targetProfiles[selectedPet] = Self.defaultProgress()
+            if slotIndex == 1 {
+                secondaryProfiles = targetProfiles
+            } else {
+                profiles = targetProfiles
+            }
+            persistTarget()
             return snapshot
         }
 
@@ -50,8 +100,13 @@ final class GrowthEngine {
         if progress.xp >= Constants.maxXP {
             progress.focusedMsCarry = 0
             progress.chaoticMsCarry = 0
-            profiles[selectedPet] = progress
-            persist()
+            targetProfiles[selectedPet] = progress
+            if slotIndex == 1 {
+                secondaryProfiles = targetProfiles
+            } else {
+                profiles = targetProfiles
+            }
+            persistTarget()
             return Self.snapshot(for: selectedPet, progress: progress)
         }
 
@@ -92,9 +147,14 @@ final class GrowthEngine {
             }
         }
 
-        profiles[selectedPet] = progress
+        targetProfiles[selectedPet] = progress
+        if slotIndex == 1 {
+            secondaryProfiles = targetProfiles
+        } else {
+            profiles = targetProfiles
+        }
         if dirty || progress.level != previousLevel {
-            persist()
+            persistTarget()
         }
 
         return Self.snapshot(
@@ -104,10 +164,18 @@ final class GrowthEngine {
         )
     }
 
-    func jumpToNextLevel(for pet: PetKind) -> GrowthSnapshot {
-        guard var progress = profiles[pet] else {
-            profiles[pet] = Self.defaultProgress()
-            return getSnapshot(for: pet)
+    func jumpToNextLevel(for pet: PetKind, slotIndex: Int = 0) -> GrowthSnapshot {
+        var targetProfiles = slotIndex == 1 ? secondaryProfiles : profiles
+        let persistTarget: () -> Void = slotIndex == 1 ? persistSecondary : persist
+
+        guard var progress = targetProfiles[pet] else {
+            targetProfiles[pet] = Self.defaultProgress()
+            if slotIndex == 1 {
+                secondaryProfiles = targetProfiles
+            } else {
+                profiles = targetProfiles
+            }
+            return getSnapshot(for: pet, slotIndex: slotIndex)
         }
 
         let targetXP: Int
@@ -125,16 +193,29 @@ final class GrowthEngine {
         progress.level = Self.level(for: progress.xp)
         progress.focusedMsCarry = 0
         progress.chaoticMsCarry = 0
-        profiles[pet] = progress
-        persist()
+        targetProfiles[pet] = progress
+        if slotIndex == 1 {
+            secondaryProfiles = targetProfiles
+        } else {
+            profiles = targetProfiles
+        }
+        persistTarget()
 
         return Self.snapshot(for: pet, progress: progress, leveledUp: progress.level.rawValue > previousLevel.rawValue)
     }
 
-    func jumpToPreviousLevel(for pet: PetKind) -> GrowthSnapshot {
-        guard var progress = profiles[pet] else {
-            profiles[pet] = Self.defaultProgress()
-            return getSnapshot(for: pet)
+    func jumpToPreviousLevel(for pet: PetKind, slotIndex: Int = 0) -> GrowthSnapshot {
+        var targetProfiles = slotIndex == 1 ? secondaryProfiles : profiles
+        let persistTarget: () -> Void = slotIndex == 1 ? persistSecondary : persist
+
+        guard var progress = targetProfiles[pet] else {
+            targetProfiles[pet] = Self.defaultProgress()
+            if slotIndex == 1 {
+                secondaryProfiles = targetProfiles
+            } else {
+                profiles = targetProfiles
+            }
+            return getSnapshot(for: pet, slotIndex: slotIndex)
         }
 
         switch progress.level {
@@ -149,8 +230,13 @@ final class GrowthEngine {
         progress.level = Self.level(for: progress.xp)
         progress.focusedMsCarry = 0
         progress.chaoticMsCarry = 0
-        profiles[pet] = progress
-        persist()
+        targetProfiles[pet] = progress
+        if slotIndex == 1 {
+            secondaryProfiles = targetProfiles
+        } else {
+            profiles = targetProfiles
+        }
+        persistTarget()
 
         return Self.snapshot(for: pet, progress: progress)
     }
@@ -161,6 +247,15 @@ final class GrowthEngine {
             defaults.set(data, forKey: storageKey)
         } catch {
             NSLog("Failed to save BugPet native progress: \(error.localizedDescription)")
+        }
+    }
+
+    private func persistSecondary() {
+        do {
+            let data = try JSONEncoder().encode(secondaryProfiles)
+            defaults.set(data, forKey: secondaryStorageKey)
+        } catch {
+            NSLog("Failed to save BugPet native secondary progress: \(error.localizedDescription)")
         }
     }
 
@@ -188,6 +283,20 @@ final class GrowthEngine {
             profiles[pet] = defaultProgress()
         }
         return profiles
+    }
+
+    private static func loadSecondaryProfiles(from defaults: UserDefaults, storageKey: String) -> [PetKind: PetProgress] {
+        guard let data = defaults.data(forKey: storageKey) else {
+            return [:]
+        }
+
+        do {
+            let decoded = try JSONDecoder().decode([PetKind: PetProgress].self, from: data)
+            return decoded
+        } catch {
+            NSLog("Failed to load BugPet native secondary progress: \(error.localizedDescription)")
+            return [:]
+        }
     }
 
     private static func defaultProgress() -> PetProgress {

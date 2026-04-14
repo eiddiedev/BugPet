@@ -5,7 +5,9 @@ struct ControlPanelViewModel {
     let language: AppLanguage
     let theme: PanelTheme
     let selectedPet: PetKind
+    let selectedPetSlotIndex: Int
     let snapshots: [PetKind: GrowthSnapshot]
+    let secondarySnapshots: [PetKind: GrowthSnapshot]
     let todos: [TodoItem]
     let statsSummary: CodingStatsSummary
     let currentAppName: String
@@ -92,6 +94,8 @@ private func makePalette(for theme: PanelTheme) -> PanelPalette {
 final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
     var onLanguageChange: ((AppLanguage) -> Void)?
     var onSelectPet: ((PetKind) -> Void)?
+    var onSelectPetSlot: ((PetKind, Int) -> Void)?
+    var onUnlockSecondaryPet: ((PetKind) -> Void)?
     var onUpgrade: (() -> Void)?
     var onDowngrade: (() -> Void)?
     var onPreferencesChange: (() -> Void)?
@@ -102,7 +106,9 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
     private var currentPage = 0
     private var selectedContributionYear: Int?
     private weak var whitelistController: WhitelistEditorViewController?
+    private weak var developerController: DeveloperPanelViewController?
     private let whitelistPopover = NSPopover()
+    private let developerPopover = NSPopover()
 
     private let titleLabel = NSTextField(labelWithString: "")
     private let settingsButton = NSButton()
@@ -129,6 +135,9 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
     private let contributionScrollView = NSScrollView()
     private let contributionHeatmapContainer = NSView()
     private let contributionLegendStack = NSStackView()
+    private let contributionContainer = NSView()
+    private let contributionTooltipView = NSView()
+    private let contributionTooltipLabel = NSTextField(labelWithString: "")
 
     private let todayCard = NSView()
     private let todayTitleLabel = NSTextField(labelWithString: "")
@@ -147,16 +156,15 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
     private let todoScrollView = NSScrollView()
     private let todoEmptyLabel = NSTextField(labelWithString: "")
 
-    private let petScrollView = NSScrollView()
+    private let petListContainer = NSView()
     private let petListStack = NSStackView()
     private let downgradeButton = NSButton(title: "", target: nil, action: nil)
     private let upgradeButton = NSButton(title: "", target: nil, action: nil)
-    private var petButtons: [PetKind: NSButton] = [:]
     private var petRowCards: [PetKind: NSView] = [:]
     private var petPreviewViews: [PetKind: NSImageView] = [:]
     private var petNameLabels: [PetKind: NSTextField] = [:]
     private var petLevelLabels: [PetKind: NSTextField] = [:]
-    private var petFusionSlots: [PetKind: [NSView]] = [:]
+    private var petFusionSlots: [PetKind: [NSButton]] = [:]
 
     private let prevPageButton = NSButton()
     private let nextPageButton = NSButton()
@@ -196,6 +204,7 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
         refreshOverview(with: viewModel)
         refreshTodoList(with: viewModel.todos)
         refreshPetRows(with: viewModel)
+        updatePageVisibility()
         whitelistController?.sync(
             language: viewModel.language,
             theme: resolvedTheme(viewModel.theme),
@@ -206,6 +215,14 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
 
     private var language: AppLanguage {
         viewModel?.language ?? preferences.language
+    }
+
+    private var showsDeveloperLevelControls: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
     }
 
     private var palette: PanelPalette {
@@ -350,12 +367,52 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
         contributionScrollView.hasHorizontalScroller = true
         contributionScrollView.autohidesScrollers = true
         contributionScrollView.hasVerticalScroller = false
+        contributionScrollView.verticalScrollElasticity = .none
+        contributionScrollView.horizontalScrollElasticity = .allowed
         contributionScrollView.documentView = contributionHeatmapContainer
         contributionScrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        contributionLegendStack.orientation = .horizontal
-        contributionLegendStack.alignment = .centerY
-        contributionLegendStack.spacing = 8
+        // Configure contribution container
+        contributionContainer.wantsLayer = true
+        contributionContainer.layer?.cornerRadius = 12
+        contributionContainer.translatesAutoresizingMaskIntoConstraints = false
+
+        contributionTooltipView.wantsLayer = true
+        contributionTooltipView.layer?.cornerRadius = 8
+        contributionTooltipView.translatesAutoresizingMaskIntoConstraints = false
+        contributionTooltipView.isHidden = true
+
+        contributionTooltipLabel.font = .monospacedDigitSystemFont(ofSize: 9, weight: .medium)
+        contributionTooltipLabel.lineBreakMode = .byTruncatingTail
+        contributionTooltipLabel.translatesAutoresizingMaskIntoConstraints = false
+        contributionTooltipView.addSubview(contributionTooltipLabel)
+        NSLayoutConstraint.activate([
+            contributionTooltipLabel.topAnchor.constraint(equalTo: contributionTooltipView.topAnchor, constant: 4),
+            contributionTooltipLabel.leadingAnchor.constraint(equalTo: contributionTooltipView.leadingAnchor, constant: 8),
+            contributionTooltipLabel.trailingAnchor.constraint(equalTo: contributionTooltipView.trailingAnchor, constant: -8),
+            contributionTooltipLabel.bottomAnchor.constraint(equalTo: contributionTooltipView.bottomAnchor, constant: -4),
+        ])
+
+        // Add contribution header and scroll view to container
+        let contributionContent = NSStackView(views: [
+            contributionHeader,
+            contributionScrollView,
+            contributionLegendStack
+        ])
+        contributionContent.orientation = .vertical
+        contributionContent.spacing = 8
+        contributionContent.translatesAutoresizingMaskIntoConstraints = false
+        contributionContainer.addSubview(contributionContent)
+        contributionContainer.addSubview(contributionTooltipView)
+
+        NSLayoutConstraint.activate([
+            contributionContent.topAnchor.constraint(equalTo: contributionContainer.topAnchor, constant: 12),
+            contributionContent.leadingAnchor.constraint(equalTo: contributionContainer.leadingAnchor, constant: 12),
+            contributionContent.trailingAnchor.constraint(equalTo: contributionContainer.trailingAnchor, constant: -12),
+            contributionContent.bottomAnchor.constraint(equalTo: contributionContainer.bottomAnchor, constant: -12),
+            contributionTooltipView.topAnchor.constraint(equalTo: contributionContainer.topAnchor, constant: 36),
+            contributionTooltipView.trailingAnchor.constraint(equalTo: contributionContainer.trailingAnchor, constant: -12),
+        ])
 
         let bottomMetrics = NSStackView(views: [todayCard, monthCard, totalCard])
         bottomMetrics.orientation = .horizontal
@@ -366,9 +423,7 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
             topMetrics,
             progressIndicator,
             progressLabel,
-            contributionHeader,
-            contributionScrollView,
-            contributionLegendStack,
+            contributionContainer,
             bottomMetrics,
         ])
         stack.orientation = .vertical
@@ -382,7 +437,7 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
             stack.trailingAnchor.constraint(equalTo: overviewPage.trailingAnchor),
             stack.bottomAnchor.constraint(lessThanOrEqualTo: overviewPage.bottomAnchor),
             progressIndicator.heightAnchor.constraint(equalToConstant: 6),
-            contributionScrollView.heightAnchor.constraint(equalToConstant: 118),
+            contributionScrollView.heightAnchor.constraint(equalToConstant: 100),
         ])
     }
 
@@ -422,7 +477,7 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
         todoListStack.spacing = 6
         todoListStack.translatesAutoresizingMaskIntoConstraints = false
 
-        let documentView = NSView()
+        let documentView = FlippedView()
         documentView.translatesAutoresizingMaskIntoConstraints = false
         documentView.addSubview(todoListStack)
         NSLayoutConstraint.activate([
@@ -460,27 +515,19 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
 
     private func buildPetPage() {
         petListStack.orientation = .vertical
-        petListStack.alignment = .leading
+        petListStack.alignment = .centerX
         petListStack.spacing = 5
         petListStack.translatesAutoresizingMaskIntoConstraints = false
 
-        let documentView = NSView()
-        documentView.translatesAutoresizingMaskIntoConstraints = false
-        documentView.addSubview(petListStack)
+        petListContainer.translatesAutoresizingMaskIntoConstraints = false
+        petListContainer.addSubview(petListStack)
         NSLayoutConstraint.activate([
-            petListStack.topAnchor.constraint(equalTo: documentView.topAnchor),
-            petListStack.leadingAnchor.constraint(equalTo: documentView.leadingAnchor),
-            petListStack.trailingAnchor.constraint(equalTo: documentView.trailingAnchor),
-            petListStack.bottomAnchor.constraint(equalTo: documentView.bottomAnchor),
-            petListStack.widthAnchor.constraint(equalTo: documentView.widthAnchor),
+            petListStack.topAnchor.constraint(equalTo: petListContainer.topAnchor),
+            petListStack.centerXAnchor.constraint(equalTo: petListContainer.centerXAnchor),
+            petListStack.leadingAnchor.constraint(greaterThanOrEqualTo: petListContainer.leadingAnchor, constant: 8),
+            petListStack.trailingAnchor.constraint(lessThanOrEqualTo: petListContainer.trailingAnchor, constant: -8),
+            petListStack.bottomAnchor.constraint(equalTo: petListContainer.bottomAnchor),
         ])
-
-        petScrollView.drawsBackground = false
-        petScrollView.borderType = .noBorder
-        petScrollView.hasVerticalScroller = true
-        petScrollView.autohidesScrollers = true
-        petScrollView.documentView = documentView
-        petScrollView.translatesAutoresizingMaskIntoConstraints = false
 
         downgradeButton.bezelStyle = .rounded
         downgradeButton.controlSize = .small
@@ -492,7 +539,8 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
         buttonRow.distribution = .fillEqually
         buttonRow.spacing = 8
 
-        let stack = NSStackView(views: [petScrollView, buttonRow])
+        let views = showsDeveloperLevelControls ? [petListContainer, buttonRow] : [petListContainer]
+        let stack = NSStackView(views: views)
         stack.orientation = .vertical
         stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -503,7 +551,7 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
             stack.leadingAnchor.constraint(equalTo: petPage.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: petPage.trailingAnchor),
             stack.bottomAnchor.constraint(equalTo: petPage.bottomAnchor),
-            petScrollView.heightAnchor.constraint(equalToConstant: 222),
+            petListContainer.heightAnchor.constraint(equalToConstant: 222),
         ])
     }
 
@@ -558,10 +606,16 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
     }
 
-    private func makeFusionSlot() -> NSView {
-        let slot = NSView()
+    private func makeFusionSlot(pet: PetKind, slotIndex: Int) -> NSButton {
+        let slot = NSButton()
+        slot.title = ""
+        slot.isBordered = false
         slot.wantsLayer = true
         slot.layer?.cornerRadius = 3
+        slot.tag = slotIndex
+        slot.identifier = NSUserInterfaceItemIdentifier(pet.rawValue)
+        slot.target = self
+        slot.action = #selector(handleFusionSlotTap(_:))
         slot.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             slot.widthAnchor.constraint(equalToConstant: 11),
@@ -575,7 +629,6 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
             petListStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-        petButtons.removeAll()
         petRowCards.removeAll()
         petPreviewViews.removeAll()
         petNameLabels.removeAll()
@@ -606,50 +659,42 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
             textStack.spacing = 2
             textStack.translatesAutoresizingMaskIntoConstraints = false
 
-            let spacer = NSView()
-            spacer.translatesAutoresizingMaskIntoConstraints = false
-
-            let button = NSButton(title: localized("切换", "Select"), target: self, action: #selector(handlePetSelection(_:)))
-            button.tag = PetKind.allCases.firstIndex(of: pet) ?? 0
-            button.bezelStyle = .rounded
-            button.controlSize = .small
-            button.translatesAutoresizingMaskIntoConstraints = false
-            button.font = .systemFont(ofSize: 10, weight: .semibold)
-
-            let slotOne = makeFusionSlot()
-            let slotTwo = makeFusionSlot()
+            let slotOne = makeFusionSlot(pet: pet, slotIndex: 0)
+            let slotTwo = makeFusionSlot(pet: pet, slotIndex: 1)
             petFusionSlots[pet] = [slotOne, slotTwo]
             let slotStack = NSStackView(views: [slotOne, slotTwo])
             slotStack.orientation = .horizontal
             slotStack.alignment = .centerY
             slotStack.spacing = 4
             slotStack.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                slotStack.widthAnchor.constraint(equalToConstant: 26),
+            ])
 
-            let rowStack = NSStackView(views: [preview, textStack, spacer, button, slotStack])
-            rowStack.orientation = .horizontal
-            rowStack.alignment = .centerY
-            rowStack.spacing = 8
-            rowStack.translatesAutoresizingMaskIntoConstraints = false
-
-            row.addSubview(rowStack)
+            row.addSubview(preview)
+            row.addSubview(textStack)
+            row.addSubview(slotStack)
             NSLayoutConstraint.activate([
                 preview.widthAnchor.constraint(equalToConstant: 38),
                 preview.heightAnchor.constraint(equalToConstant: 38),
-                rowStack.topAnchor.constraint(equalTo: row.topAnchor, constant: 6),
-                rowStack.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 6),
-                rowStack.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -6),
-                rowStack.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -6),
-                row.widthAnchor.constraint(equalTo: petListStack.widthAnchor),
                 row.heightAnchor.constraint(equalToConstant: 50),
+                row.widthAnchor.constraint(equalToConstant: 214),
+                preview.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 12),
+                preview.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+                textStack.leadingAnchor.constraint(equalTo: preview.trailingAnchor, constant: 10),
+                textStack.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+                slotStack.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -12),
+                slotStack.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+                textStack.trailingAnchor.constraint(lessThanOrEqualTo: slotStack.leadingAnchor, constant: -10),
             ])
 
             petRowCards[pet] = row
             petPreviewViews[pet] = preview
             petNameLabels[pet] = nameLabel
             petLevelLabels[pet] = levelLabel
-            petButtons[pet] = button
             petListStack.addArrangedSubview(row)
         }
+
     }
 
     private func refreshTexts() {
@@ -672,7 +717,10 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
     }
 
     private func refreshOverview(with viewModel: ControlPanelViewModel) {
-        let snapshot = viewModel.snapshots[viewModel.selectedPet] ?? GrowthSnapshot(
+        let snapshotSource = viewModel.selectedPetSlotIndex == 1
+            ? viewModel.secondarySnapshots[viewModel.selectedPet]
+            : viewModel.snapshots[viewModel.selectedPet]
+        let snapshot = snapshotSource ?? GrowthSnapshot(
             pet: viewModel.selectedPet,
             xp: 0,
             level: .one,
@@ -753,41 +801,72 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
 
             todoListStack.addArrangedSubview(row)
         }
+
+        todoScrollView.contentView.scroll(to: .zero)
+        todoScrollView.reflectScrolledClipView(todoScrollView.contentView)
     }
 
     private func refreshPetRows(with viewModel: ControlPanelViewModel? = nil) {
         let activeModel = viewModel ?? self.viewModel
 
         for pet in PetKind.allCases {
-            guard let button = petButtons[pet] else { continue }
             let snapshot = activeModel?.snapshots[pet]
+            let secondarySnapshot = activeModel?.secondarySnapshots[pet]
             let isSelected = pet == activeModel?.selectedPet
-            petPreviewViews[pet]?.image = PetAssetCatalog.image(for: pet, level: snapshot?.level ?? .one)
+            let selectedSlotIndex = isSelected ? (activeModel?.selectedPetSlotIndex ?? 0) : 0
+            let previewLevel = (selectedSlotIndex == 1 ? secondarySnapshot?.level : snapshot?.level) ?? snapshot?.level ?? .one
+
+            petPreviewViews[pet]?.image = PetAssetCatalog.image(for: pet, level: previewLevel)
             petNameLabels[pet]?.stringValue = pet.displayName
-            petLevelLabels[pet]?.stringValue = snapshot?.level.displayLabel ?? "Lv.1"
+            if let snapshot, let secondarySnapshot {
+                petLevelLabels[pet]?.stringValue = "\(snapshot.level.displayLabel) / \(secondarySnapshot.level.displayLabel)"
+            } else {
+                petLevelLabels[pet]?.stringValue = snapshot?.level.displayLabel ?? "Lv.1"
+            }
             petNameLabels[pet]?.textColor = palette.primaryText
             petLevelLabels[pet]?.textColor = palette.secondaryText
             petRowCards[pet]?.layer?.backgroundColor = (isSelected ? palette.accentSoft : palette.surface).cgColor
             petRowCards[pet]?.layer?.borderWidth = 1
             petRowCards[pet]?.layer?.borderColor = (isSelected ? palette.accent : palette.border).cgColor
-            button.title = isSelected ? localized("已选中", "Selected") : localized("切换", "Select")
-            petFusionSlots[pet]?.forEach { slot in
-                slot.layer?.backgroundColor = palette.inputBackground.cgColor
+            let slotTwoUnlocked = secondarySnapshot != nil || (snapshot?.isMaxLevel == true)
+            petFusionSlots[pet]?.enumerated().forEach { index, slot in
+                let isLocked = index == 1 && !slotTwoUnlocked
+                let isCreated = index == 0 || secondarySnapshot != nil
+                let isActiveSlot = isSelected && selectedSlotIndex == index && (index == 0 || secondarySnapshot != nil)
+                slot.isEnabled = !isLocked
+                slot.alphaValue = isLocked ? 0.55 : 1
+                slot.layer?.backgroundColor = (isActiveSlot ? palette.accent : (isCreated ? palette.accentSoft : palette.inputBackground)).cgColor
                 slot.layer?.borderWidth = 1
-                slot.layer?.borderColor = palette.border.cgColor
+                slot.layer?.borderColor = (isActiveSlot || isCreated ? palette.accent : (isLocked ? palette.secondaryText : palette.border)).cgColor
+                slot.title = isLocked ? "×" : ""
+                slot.font = .systemFont(ofSize: 8, weight: .bold)
+                slot.contentTintColor = isLocked ? palette.secondaryText : palette.primaryText
+                slot.toolTip = index == 0
+                    ? localized("第一只 \(snapshot?.level.displayLabel ?? "Lv.1")", "First \(snapshot?.level.displayLabel ?? "Lv.1")")
+                    : (slotTwoUnlocked
+                        ? (secondarySnapshot != nil
+                            ? localized("第二只 \(secondarySnapshot?.level.displayLabel ?? "Lv.1")", "Second \(secondarySnapshot?.level.displayLabel ?? "Lv.1")")
+                            : localized("点击解锁第二只，初始为 Lv.1", "Click to unlock a fresh second copy at Lv.1"))
+                        : localized("第一只满级后解锁第二只", "Unlock the second copy after the first reaches max level"))
             }
         }
 
-        if let selectedSnapshot = activeModel?.snapshots[activeModel?.selectedPet ?? .bugcat] {
+        let selectedPet = activeModel?.selectedPet ?? .bugcat
+        let selectedSnapshot = (activeModel?.selectedPetSlotIndex == 1
+            ? activeModel?.secondarySnapshots[selectedPet]
+            : activeModel?.snapshots[selectedPet]) ?? activeModel?.snapshots[selectedPet]
+        if let selectedSnapshot {
             downgradeButton.title = selectedSnapshot.isMinLevel ? "Lv.1" : localized("降级", "Level -")
             upgradeButton.title = selectedSnapshot.isMaxLevel ? localized("满级", "Max") : localized("升级", "Level +")
             downgradeButton.isEnabled = !selectedSnapshot.isMinLevel
             upgradeButton.isEnabled = !selectedSnapshot.isMaxLevel
         }
+
     }
 
     private func rebuildContributionHeatmap(using summary: CodingStatsSummary) {
         contributionHeatmapContainer.subviews.forEach { $0.removeFromSuperview() }
+        setContributionTooltip(nil)
 
         let year = selectedContributionYear ?? calendar.component(.year, from: .now)
         guard let yearStart = calendar.date(from: DateComponents(year: year, month: 1, day: 1)),
@@ -798,15 +877,15 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
         }
 
         let dayMap = Dictionary(uniqueKeysWithValues: summary.contributionDays.map { (calendar.startOfDay(for: $0.date), $0.focusedMinutes) })
-        let dayLabelColumnWidth: CGFloat = 22
+        let dayLabelColumnWidth: CGFloat = 30
         let cellSize: CGFloat = 8
-        let cellGap: CGFloat = 3
+        let cellGap: CGFloat = 2
         let rowHeight = cellSize + cellGap
         let columnWidth = cellSize + cellGap
-        let monthLabelHeight: CGFloat = 12
-        let topInset: CGFloat = 8
-        let leftInset: CGFloat = 8
-        let bottomInset: CGFloat = 8
+        let monthLabelHeight: CGFloat = 10
+        let topInset: CGFloat = 6
+        let leftInset: CGFloat = 12
+        let bottomInset: CGFloat = 6
         let weeks = Int(ceil(yearEnd.timeIntervalSince(firstDisplayDate) / (7 * 24 * 60 * 60)))
         let contentWidth = leftInset + dayLabelColumnWidth + CGFloat(weeks) * columnWidth + 12
         let contentHeight = topInset + monthLabelHeight + 6 + 7 * rowHeight + bottomInset
@@ -859,7 +938,7 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
                     continue
                 }
 
-                let cell = NSView(frame: NSRect(
+                let cell = HeatmapCellView(frame: NSRect(
                     x: leftInset + dayLabelColumnWidth + CGFloat(week) * columnWidth,
                     y: contentHeight - topInset - monthLabelHeight - 6 - CGFloat(weekday + 1) * rowHeight,
                     width: cellSize,
@@ -873,9 +952,15 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
                     cell.layer?.backgroundColor = contributionColor(for: minutes).cgColor
                     let formatter = DateFormatter()
                     formatter.dateFormat = "yyyy-MM-dd"
-                    cell.toolTip = "\(formatter.string(from: date))  \(minutes)m"
+                    let hoverText = "\(formatter.string(from: date)) · \(minutes)m"
+                    cell.hoverText = hoverText
+                    cell.toolTip = hoverText
+                    cell.onHover = { [weak self] text in
+                        self?.setContributionTooltip(text)
+                    }
                 } else {
                     cell.layer?.backgroundColor = NSColor.clear.cgColor
+                    cell.onHover = nil
                 }
 
                 contributionHeatmapContainer.addSubview(cell)
@@ -897,7 +982,7 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
             (localized("180m+", "180m+"), palette.contributionVeryHigh),
         ]
 
-        let lessLabel = NSTextField(labelWithString: localized("少", "Less"))
+        let lessLabel = NSTextField(labelWithString: "Less")
         lessLabel.font = .systemFont(ofSize: 9, weight: .medium)
         lessLabel.textColor = palette.secondaryText
         contributionLegendStack.addArrangedSubview(lessLabel)
@@ -924,7 +1009,7 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
             contributionLegendStack.addArrangedSubview(row)
         }
 
-        let moreLabel = NSTextField(labelWithString: localized("多", "More"))
+        let moreLabel = NSTextField(labelWithString: "More")
         moreLabel.font = .systemFont(ofSize: 9, weight: .medium)
         moreLabel.textColor = palette.secondaryText
         contributionLegendStack.addArrangedSubview(moreLabel)
@@ -946,6 +1031,10 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
 
         [levelTitleLabel, xpTitleLabel, todayTitleLabel, monthTitleLabel, totalTitleLabel, progressLabel, contributionTitleLabel, contributionYearLabel, todoEmptyLabel]
             .forEach { $0.textColor = palette.secondaryText }
+        contributionTooltipView.layer?.backgroundColor = palette.background.withAlphaComponent(0.96).cgColor
+        contributionTooltipView.layer?.borderWidth = 1
+        contributionTooltipView.layer?.borderColor = palette.border.cgColor
+        contributionTooltipLabel.textColor = palette.primaryText
         [levelValueLabel, xpValueLabel, todayValueLabel, monthValueLabel, totalValueLabel].forEach { $0.textColor = palette.primaryText }
 
         [levelCard, xpCard, todayCard, monthCard, totalCard].forEach { card in
@@ -966,9 +1055,20 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
         contributionHeatmapContainer.layer?.backgroundColor = palette.surface.cgColor
         contributionHeatmapContainer.layer?.borderWidth = 1
         contributionHeatmapContainer.layer?.borderColor = palette.border.cgColor
+        
+        // Style contribution container
+        contributionContainer.layer?.backgroundColor = palette.surface.cgColor
+        contributionContainer.layer?.borderWidth = 1
+        contributionContainer.layer?.borderColor = palette.border.cgColor
 
         refreshTodoList(with: viewModel?.todos ?? preferences.todos)
         refreshPetRows()
+    }
+
+    private func setContributionTooltip(_ text: String?) {
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        contributionTooltipLabel.stringValue = trimmed
+        contributionTooltipView.isHidden = trimmed.isEmpty
     }
 
     private func updatePageVisibility() {
@@ -1004,8 +1104,8 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
 
     private func monthTitle(_ month: Int) -> String {
         let formatter = DateFormatter()
-        formatter.locale = language == .zh ? Locale(identifier: "zh_CN") : Locale(identifier: "en_US_POSIX")
-        formatter.setLocalizedDateFormatFromTemplate(language == .zh ? "M月" : "MMM")
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MMM"
         guard let date = calendar.date(from: DateComponents(year: 2000, month: month, day: 1)) else {
             return "\(month)"
         }
@@ -1070,17 +1170,15 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
         statusItem.state = preferences.showsStatusBar ? .on : .off
         menu.addItem(statusItem)
 
-        let sizeItem = NSMenuItem(title: localized("宠物大小", "Pet Size"), action: nil, keyEquivalent: "")
-        let sizeMenu = NSMenu()
-        sizeMenu.addItem(makeSizeMenuItem(title: localized("小", "Small"), size: .small))
-        sizeMenu.addItem(makeSizeMenuItem(title: localized("中", "Medium"), size: .medium))
-        sizeMenu.addItem(makeSizeMenuItem(title: localized("大", "Large"), size: .large))
-        menu.setSubmenu(sizeMenu, for: sizeItem)
-        menu.addItem(sizeItem)
+        menu.addItem(makeSizeSliderMenuItem())
 
         let whitelistItem = NSMenuItem(title: localized("白名单…", "Whitelist…"), action: #selector(handleManageWhitelist), keyEquivalent: "")
         whitelistItem.target = self
         menu.addItem(whitelistItem)
+
+        let developerItem = NSMenuItem(title: localized("开发者面板…", "Developer Panel…"), action: #selector(handleOpenDeveloperPanel), keyEquivalent: "")
+        developerItem.target = self
+        menu.addItem(developerItem)
 
         menu.addItem(.separator())
 
@@ -1107,11 +1205,24 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
         return item
     }
 
-    private func makeSizeMenuItem(title: String, size: PetDisplaySize) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: #selector(handleSizeMenu(_:)), keyEquivalent: "")
-        item.target = self
-        item.representedObject = size.rawValue
-        item.state = preferences.petDisplaySize == size ? .on : .off
+    private func makeSizeSliderMenuItem() -> NSMenuItem {
+        let item = NSMenuItem()
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 190, height: 46))
+
+        let title = NSTextField(labelWithString: "\(localized("宠物大小", "Pet Size")) \(Int(round(preferences.petDisplayScale * 100)))%")
+        title.font = .systemFont(ofSize: 11, weight: .medium)
+        title.textColor = palette.primaryText
+        title.frame = NSRect(x: 12, y: 24, width: 166, height: 16)
+
+        let slider = NSSlider(value: preferences.petDisplayScale, minValue: 0.82, maxValue: 2.0, target: self, action: #selector(handleSizeSliderChanged(_:)))
+        slider.isContinuous = true
+        slider.controlSize = .small
+        slider.frame = NSRect(x: 12, y: 6, width: 166, height: 18)
+        slider.identifier = NSUserInterfaceItemIdentifier("pet-size-slider")
+
+        container.addSubview(title)
+        container.addSubview(slider)
+        item.view = container
         return item
     }
 
@@ -1138,12 +1249,14 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
         onPreferencesChange?()
     }
 
-    @objc private func handleSizeMenu(_ sender: NSMenuItem) {
-        guard let rawValue = sender.representedObject as? String,
-              let size = PetDisplaySize(rawValue: rawValue) else {
+    @objc private func handleSizeSliderChanged(_ sender: NSSlider) {
+        guard let container = sender.superview,
+              let title = container.subviews.compactMap({ $0 as? NSTextField }).first else {
             return
         }
-        preferences.petDisplaySize = size
+
+        preferences.petDisplayScale = CGFloat(sender.doubleValue)
+        title.stringValue = "\(localized("宠物大小", "Pet Size")) \(Int(round(sender.doubleValue * 100)))%"
         onPreferencesChange?()
     }
 
@@ -1163,6 +1276,35 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
         whitelistPopover.animates = true
         whitelistPopover.contentViewController = controller
         whitelistPopover.show(relativeTo: settingsButton.bounds, of: settingsButton, preferredEdge: .maxY)
+    }
+
+    @objc private func handleOpenDeveloperPanel() {
+        let controller = DeveloperPanelViewController()
+        controller.sync(language: language, theme: resolvedTheme(viewModel?.theme ?? preferences.panelTheme))
+        developerController = controller
+        developerPopover.behavior = .transient
+        developerPopover.animates = true
+        developerPopover.contentViewController = controller
+        developerPopover.show(relativeTo: settingsButton.bounds, of: settingsButton, preferredEdge: .maxY)
+    }
+
+    @objc private func handleFusionSlotTap(_ sender: NSButton) {
+        guard let rawValue = sender.identifier?.rawValue,
+              let pet = PetKind(rawValue: rawValue) else {
+            return
+        }
+
+        if sender.tag == 0 {
+            onSelectPetSlot?(pet, 0)
+            return
+        }
+
+        if viewModel?.secondarySnapshots[pet] != nil {
+            onSelectPetSlot?(pet, 1)
+            return
+        }
+
+        onUnlockSecondaryPet?(pet)
     }
 
     @objc private func handleQuit() {
@@ -1196,7 +1338,9 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
             language: preferences.language,
             theme: preferences.panelTheme,
             selectedPet: preferences.selectedPet,
+            selectedPetSlotIndex: preferences.selectedPetSlotIndex,
             snapshots: [:],
+            secondarySnapshots: [:],
             todos: preferences.todos,
             statsSummary: CodingStatsSummary(
                 contributionDays: [],
@@ -1240,11 +1384,6 @@ final class ControlPanelViewController: NSViewController, NSTextFieldDelegate {
         let todos = preferences.todos.filter { $0.id != id }
         preferences.todos = todos
         refreshTodoList(with: todos)
-    }
-
-    @objc private func handlePetSelection(_ sender: NSButton) {
-        let pet = PetKind.allCases[sender.tag]
-        onSelectPet?(pet)
     }
 
     @objc private func handleDowngrade() {
@@ -1500,5 +1639,146 @@ private final class WhitelistEditorViewController: NSViewController {
 
     private func localized(_ zh: String, _ en: String) -> String {
         language == .zh ? zh : en
+    }
+}
+
+@MainActor
+private final class DeveloperPanelViewController: NSViewController {
+    private var language: AppLanguage = .zh
+    private var theme: PanelTheme = .light
+
+    private let titleLabel = NSTextField(labelWithString: "")
+    private let nameLabel = NSTextField(labelWithString: "")
+    private let feedbackLabel = NSTextField(labelWithString: "")
+    private let starLabel = NSTextField(labelWithString: "")
+    private let copyMailButton = NSButton(title: "", target: nil, action: nil)
+    private let openGitHubButton = NSButton(title: "", target: nil, action: nil)
+
+    override func loadView() {
+        view = NSView(frame: NSRect(x: 0, y: 0, width: 276, height: 184))
+        view.wantsLayer = true
+        view.layer?.cornerRadius = 14
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        titleLabel.font = .systemFont(ofSize: 12, weight: .bold)
+        nameLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        feedbackLabel.font = .systemFont(ofSize: 11)
+        feedbackLabel.maximumNumberOfLines = 2
+        starLabel.font = .systemFont(ofSize: 11)
+        starLabel.maximumNumberOfLines = 2
+
+        copyMailButton.bezelStyle = .rounded
+        copyMailButton.controlSize = .small
+        copyMailButton.target = self
+        copyMailButton.action = #selector(handleCopyMail)
+
+        openGitHubButton.bezelStyle = .rounded
+        openGitHubButton.controlSize = .small
+        openGitHubButton.target = self
+        openGitHubButton.action = #selector(handleOpenGitHub)
+
+        let buttonStack = NSStackView(views: [copyMailButton, openGitHubButton])
+        buttonStack.orientation = .horizontal
+        buttonStack.distribution = .fillEqually
+        buttonStack.spacing = 8
+
+        let stack = NSStackView(views: [titleLabel, nameLabel, feedbackLabel, starLabel, buttonStack])
+        stack.orientation = .vertical
+        stack.spacing = 8
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 12),
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            stack.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor, constant: -12),
+        ])
+
+        refresh()
+    }
+
+    func sync(language: AppLanguage, theme: PanelTheme) {
+        self.language = language
+        self.theme = theme
+        if isViewLoaded {
+            refresh()
+        }
+    }
+
+    private func refresh() {
+        let palette = makePalette(for: theme)
+        view.appearance = NSAppearance(named: resolvedTheme(theme) == .dark ? .darkAqua : .aqua)
+        view.layer?.backgroundColor = palette.background.cgColor
+        view.layer?.borderWidth = 1
+        view.layer?.borderColor = palette.border.cgColor
+
+        titleLabel.stringValue = localized("开发者面板", "Developer Panel")
+        nameLabel.stringValue = "Eiddie"
+        feedbackLabel.stringValue = localized("意见反馈请使用下方按钮复制邮箱。", "Use the button below to copy the feedback email.")
+        starLabel.stringValue = localized("喜欢的话可以给我一个 GitHub Star，也欢迎到仓库反馈问题。", "If you like BugPet, please consider giving it a GitHub star or leaving feedback on GitHub.")
+        copyMailButton.title = localized("复制反馈邮箱", "Copy Feedback Email")
+        openGitHubButton.title = localized("打开 GitHub", "Open GitHub")
+
+        [titleLabel, nameLabel].forEach { $0.textColor = palette.primaryText }
+        [feedbackLabel, starLabel].forEach { $0.textColor = palette.secondaryText }
+    }
+
+    @objc private func handleCopyMail() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("2314869561a@gmail.com", forType: .string)
+    }
+
+    @objc private func handleOpenGitHub() {
+        guard let url = URL(string: "https://github.com/eiddiedev/BugPet") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
+    private func localized(_ zh: String, _ en: String) -> String {
+        language == .zh ? zh : en
+    }
+}
+
+private final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
+}
+
+private final class HeatmapCellView: NSView {
+    var hoverText: String?
+    var onHover: ((String?) -> Void)?
+
+    private var trackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .mouseEnteredAndExited, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        self.trackingArea = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        onHover?(hoverText)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onHover?(nil)
     }
 }

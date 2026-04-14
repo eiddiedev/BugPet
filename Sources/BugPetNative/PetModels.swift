@@ -176,7 +176,7 @@ struct CodingStatsSummary {
 struct PetRenderModel {
     let selectedPet: PetKind
     let selectedPetLevel: PetLevel
-    let petDisplaySize: PetDisplaySize
+    let petDisplayScale: CGFloat
     let showsStatusBar: Bool
     let state: PetState
     let appName: String

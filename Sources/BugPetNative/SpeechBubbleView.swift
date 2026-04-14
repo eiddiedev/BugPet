@@ -5,11 +5,12 @@ final class SpeechBubbleView: NSView {
     private enum Metrics {
         static let bubbleWidth: CGFloat = 168
         static let minBubbleHeight: CGFloat = 76
-        static let maxBubbleHeight: CGFloat = 112
+        static let maxBubbleHeight: CGFloat = 124
         static let horizontalPadding: CGFloat = 16
         static let topPadding: CGFloat = 14
         static let bottomPadding: CGFloat = 14
         static let tailHeight: CGFloat = 14
+        static let textMeasurementSlack: CGFloat = 8
     }
 
     private let bodyLabel = NSTextField(wrappingLabelWithString: "")
@@ -91,7 +92,7 @@ final class SpeechBubbleView: NSView {
             with: NSSize(width: availableTextWidth, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading]
         )
-        measuredBodyHeight = max(18, ceil(textRect.height))
+        measuredBodyHeight = max(18, ceil(textRect.height) + Metrics.textMeasurementSlack)
         let bubbleHeight = min(
             Metrics.maxBubbleHeight,
             max(

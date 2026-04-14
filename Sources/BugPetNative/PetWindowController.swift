@@ -13,6 +13,11 @@ final class PetWindowController: NSWindowController, NSPopoverDelegate {
             panelController.onSelectPet = onPetSelected
         }
     }
+    var onPetSlotSelected: ((PetKind, Int) -> Void)? {
+        didSet {
+            panelController.onSelectPetSlot = onPetSlotSelected
+        }
+    }
     var onUpgrade: (() -> Void)? {
         didSet {
             panelController.onUpgrade = onUpgrade
@@ -23,6 +28,11 @@ final class PetWindowController: NSWindowController, NSPopoverDelegate {
             panelController.onDowngrade = onDowngrade
         }
     }
+    var onUnlockSecondaryPet: ((PetKind) -> Void)? {
+        didSet {
+            panelController.onUnlockSecondaryPet = onUnlockSecondaryPet
+        }
+    }
     var onPreferencesChange: (() -> Void)? {
         didSet {
             panelController.onPreferencesChange = onPreferencesChange
@@ -31,6 +41,11 @@ final class PetWindowController: NSWindowController, NSPopoverDelegate {
     var onHoverChange: ((Bool) -> Void)? {
         didSet {
             rootView.onHoverChange = onHoverChange
+        }
+    }
+    var onDragStart: (() -> Void)? {
+        didSet {
+            rootView.onDragStart = onDragStart
         }
     }
     var onPanelVisibilityChange: ((Bool) -> Void)?

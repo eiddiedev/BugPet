@@ -2,11 +2,14 @@ import AppKit
 import ImageIO
 import SpriteKit
 
+@MainActor
 enum PetAssetCatalog {
     struct AnimatedTexture {
         let frames: [SKTexture]
         let timePerFrame: TimeInterval
     }
+
+    private static var animatedTextureCache: [String: AnimatedTexture] = [:]
 
     static func image(for pet: PetKind, level: PetLevel) -> NSImage? {
         guard let url = Bundle.module.url(
@@ -48,8 +51,13 @@ enum PetAssetCatalog {
     }
 
     static func animatedTexture(for pet: PetKind, level: PetLevel) -> AnimatedTexture? {
+        let cacheKey = "\(pet.rawValue)-level\(level.rawValue)"
+        if let cached = animatedTextureCache[cacheKey] {
+            return cached
+        }
+
         guard let url = Bundle.module.url(
-            forResource: "\(pet.rawValue)-level\(level.rawValue)",
+            forResource: cacheKey,
             withExtension: "gif"
         ) else {
             return nil
@@ -82,7 +90,9 @@ enum PetAssetCatalog {
         }
 
         let timePerFrame = max(totalDuration / Double(frames.count), 0.02)
-        return AnimatedTexture(frames: frames, timePerFrame: timePerFrame)
+        let animatedTexture = AnimatedTexture(frames: frames, timePerFrame: timePerFrame)
+        animatedTextureCache[cacheKey] = animatedTexture
+        return animatedTexture
     }
 
     private static func gifFrameDuration(source: CGImageSource, index: Int) -> TimeInterval {
@@ -133,6 +143,13 @@ enum PetAssetCatalog {
         }
 
         let pixels = data.bindMemory(to: UInt8.self, capacity: width * height * bytesPerPixel)
+        let backgroundSamples = [
+            readPixel(x: 0, y: 0, pixels: pixels, width: width, bytesPerPixel: bytesPerPixel),
+            readPixel(x: max(width - 1, 0), y: 0, pixels: pixels, width: width, bytesPerPixel: bytesPerPixel),
+            readPixel(x: 0, y: max(height - 1, 0), pixels: pixels, width: width, bytesPerPixel: bytesPerPixel),
+            readPixel(x: max(width - 1, 0), y: max(height - 1, 0), pixels: pixels, width: width, bytesPerPixel: bytesPerPixel),
+        ]
+        let backgroundColor = averageColor(backgroundSamples)
 
         for y in 0 ..< height {
             for x in 0 ..< width {
@@ -142,7 +159,17 @@ enum PetAssetCatalog {
                 let blue = pixels[index + 2]
                 let alpha = pixels[index + 3]
 
-                if red > 240 && green > 240 && blue > 240 {
+                if alpha == 0 {
+                    continue
+                }
+
+                if isBackgroundPixel(
+                    red: red,
+                    green: green,
+                    blue: blue,
+                    alpha: alpha,
+                    backgroundColor: backgroundColor
+                ) {
                     pixels[index + 3] = 0
                 } else {
                     pixels[index + 3] = alpha
@@ -155,5 +182,43 @@ enum PetAssetCatalog {
         }
 
         return processedCGImage
+    }
+
+    private static func readPixel(
+        x: Int,
+        y: Int,
+        pixels: UnsafeMutablePointer<UInt8>,
+        width: Int,
+        bytesPerPixel: Int
+    ) -> (UInt8, UInt8, UInt8, UInt8) {
+        let index = (y * width + x) * bytesPerPixel
+        return (pixels[index], pixels[index + 1], pixels[index + 2], pixels[index + 3])
+    }
+
+    private static func averageColor(_ samples: [(UInt8, UInt8, UInt8, UInt8)]) -> (UInt8, UInt8, UInt8, UInt8) {
+        guard !samples.isEmpty else {
+            return (255, 255, 255, 0)
+        }
+
+        let red = samples.reduce(0) { $0 + Int($1.0) } / samples.count
+        let green = samples.reduce(0) { $0 + Int($1.1) } / samples.count
+        let blue = samples.reduce(0) { $0 + Int($1.2) } / samples.count
+        let alpha = samples.reduce(0) { $0 + Int($1.3) } / samples.count
+
+        return (UInt8(red), UInt8(green), UInt8(blue), UInt8(alpha))
+    }
+
+    private static func isBackgroundPixel(
+        red: UInt8,
+        green: UInt8,
+        blue: UInt8,
+        alpha: UInt8,
+        backgroundColor: (UInt8, UInt8, UInt8, UInt8)
+    ) -> Bool {
+        let colorDistance = abs(Int(red) - Int(backgroundColor.0))
+            + abs(Int(green) - Int(backgroundColor.1))
+            + abs(Int(blue) - Int(backgroundColor.2))
+        let alphaDistance = abs(Int(alpha) - Int(backgroundColor.3))
+        return colorDistance <= 30 && alphaDistance <= 30
     }
 }

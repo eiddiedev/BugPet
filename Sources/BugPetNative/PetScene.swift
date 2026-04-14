@@ -48,6 +48,20 @@ final class PetScene: SKScene {
         scheduleIdleAnimation()
     }
 
+    override func didChangeSize(_ oldSize: CGSize) {
+        super.didChangeSize(oldSize)
+
+        guard petNode.parent != nil else {
+            return
+        }
+
+        let yOffset = isFrightened && currentPet == .bugcat && currentLevel != .three
+            ? fearPositionOffset
+            : idlePositionOffset
+        petNode.position = CGPoint(x: size.width / 2, y: size.height / 2 + yOffset)
+        applyDisplayScale()
+    }
+
     func setPet(_ pet: PetKind, level: PetLevel) {
         if currentPet == pet, currentLevel == level, petNode.parent != nil, !isFrightened {
             return
@@ -97,6 +111,14 @@ final class PetScene: SKScene {
         ])
         shake.timingMode = .easeInEaseOut
 
+        let tilt = SKAction.sequence([
+            .rotate(toAngle: -0.035, duration: 0.04, shortestUnitArc: true),
+            .rotate(toAngle: 0.035, duration: 0.06, shortestUnitArc: true),
+            .rotate(toAngle: -0.025, duration: 0.06, shortestUnitArc: true),
+            .rotate(toAngle: 0, duration: 0.04, shortestUnitArc: true),
+        ])
+        tilt.timingMode = .easeInEaseOut
+
         let pulse = SKAction.sequence([
             .scale(to: 0.985, duration: 0.05),
             .scale(to: 1.0, duration: 0.05),
@@ -104,7 +126,7 @@ final class PetScene: SKScene {
         pulse.timingMode = .easeInEaseOut
 
         let fearLoop = SKAction.sequence([
-            .group([shake, pulse]),
+            .group([shake, tilt, pulse]),
             .wait(forDuration: 0.10),
         ])
 
@@ -128,6 +150,7 @@ final class PetScene: SKScene {
                     x: self.size.width / 2,
                     y: self.size.height / 2 + self.idlePositionOffset
                 )
+                self.petNode.zRotation = 0
                 self.applyDisplayScale()
             },
             .scale(to: 1.0, duration: 0.12),
@@ -177,48 +200,51 @@ final class PetScene: SKScene {
             return
         }
 
-        if currentPet == .bugcat, (currentLevel == .two || currentLevel == .three) {
-            if let animatedTexture = animatedTexture(for: currentPet, level: currentLevel) {
-                petNode.texture = animatedTexture.frames.first
-                let occasionalAnimation = SKAction.sequence([
-                    .wait(forDuration: Double.random(in: 5.0 ... 10.0)),
-                    .run { [weak self] in
-                        guard let self else { return }
-                        let loop = SKAction.sequence([
-                            .animate(with: animatedTexture.frames, timePerFrame: animatedTexture.timePerFrame, resize: false, restore: false),
-                            .wait(forDuration: 1.0),
-                            .run { [weak self] in
-                                self?.petNode.texture = animatedTexture.frames.first
-                            }
-                        ])
-                        self.petNode.run(loop, withKey: "occasional-animation")
-                    },
-                    .run { [weak self] in
-                        self?.scheduleIdleAnimation()
-                    }
-                ])
-                petNode.run(occasionalAnimation, withKey: "idle-switch")
-                return
-            }
+        if currentPet == .bugcat, (currentLevel == .two || currentLevel == .three),
+           let animatedTexture = animatedTexture(for: currentPet, level: currentLevel) {
+            petNode.texture = animatedTexture.frames.first
+            let occasionalAnimation = SKAction.sequence([
+                .wait(forDuration: Double.random(in: 5.0 ... 10.0)),
+                .animate(with: animatedTexture.frames, timePerFrame: animatedTexture.timePerFrame, resize: false, restore: false),
+                .wait(forDuration: 1.0),
+                .run { [weak self] in
+                    self?.petNode.texture = animatedTexture.frames.first
+                },
+                .run { [weak self] in
+                    self?.scheduleIdleAnimation()
+                },
+            ])
+            petNode.run(occasionalAnimation, withKey: "idle-switch")
+            return
+        }
+
+        if let animatedTexture = animatedTexture(for: currentPet, level: currentLevel) {
+            petNode.texture = animatedTexture.frames.first
+            let triggeredAnimation = SKAction.sequence([
+                .wait(forDuration: Double.random(in: 1.8 ... 4.0)),
+                .animate(with: animatedTexture.frames, timePerFrame: animatedTexture.timePerFrame, resize: false, restore: false),
+                .run { [weak self] in
+                    self?.petNode.texture = animatedTexture.frames.first
+                },
+                .run { [weak self] in
+                    self?.scheduleIdleAnimation()
+                },
+            ])
+            petNode.run(triggeredAnimation, withKey: "idle-switch")
+            return
         }
 
         petNode.texture = displayTexture(for: currentPet, level: currentLevel)
     }
 
     private func displayTexture(for pet: PetKind, level: PetLevel) -> SKTexture {
-        if pet == .bugcat, (level == .two || level == .three) {
-            if let animatedTexture = animatedTexture(for: pet, level: level) {
-                return animatedTexture.frames.first ?? PetAssetCatalog.texture(for: pet, level: level)
-            }
+        if let animatedTexture = animatedTexture(for: pet, level: level) {
+            return animatedTexture.frames.first ?? PetAssetCatalog.texture(for: pet, level: level)
         }
         return PetAssetCatalog.texture(for: pet, level: level)
     }
 
     private func animatedTexture(for pet: PetKind, level: PetLevel) -> PetAssetCatalog.AnimatedTexture? {
-        guard pet == .bugcat, level == .two || level == .three else {
-            return nil
-        }
-
         return PetAssetCatalog.animatedTexture(for: pet, level: level)
     }
 

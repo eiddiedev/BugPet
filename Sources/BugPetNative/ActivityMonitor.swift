@@ -5,19 +5,27 @@ import IOKit
 
 @MainActor
 struct ActivityMonitor {
+    private struct FrontmostSnapshot {
+        let appName: String
+        let bundleIdentifier: String?
+        let windowTitle: String
+    }
+
     private static let idleFallbackCap: TimeInterval = 60 * 60 * 8
     private static var monitorsInstalled = false
     private static var globalMonitor: Any?
     private static var localMonitor: Any?
     private static var lastObservedInputDate = Date()
+    private static var lastExternalSnapshot: FrontmostSnapshot?
 
     func read(whitelistApps: [WhitelistApp], now: Date = .now) -> ActivityReading {
         installEventMonitorsIfNeeded()
 
         let frontmostApp = NSWorkspace.shared.frontmostApplication
-        let appName = frontmostApp?.localizedName ?? "Unknown"
-        let bundleIdentifier = frontmostApp?.bundleIdentifier
-        let windowTitle = frontmostApp.map(fetchWindowTitle(for:)) ?? ""
+        let snapshot = resolveFrontmostSnapshot(frontmostApp)
+        let appName = snapshot.appName
+        let bundleIdentifier = snapshot.bundleIdentifier
+        let windowTitle = snapshot.windowTitle
         let idleSeconds = readIdleSeconds(now: now)
         let codingTool = detectCodingTool(appName: appName, windowTitle: windowTitle)
         let isCodingApp = matchesWhitelist(appName: appName, bundleIdentifier: bundleIdentifier, whitelistApps: whitelistApps)
@@ -31,6 +39,29 @@ struct ActivityMonitor {
             isCodingApp: isCodingApp,
             activeCodingTool: codingTool
         )
+    }
+
+    private func resolveFrontmostSnapshot(_ application: NSRunningApplication?) -> FrontmostSnapshot {
+        guard let application else {
+            return Self.lastExternalSnapshot ?? FrontmostSnapshot(appName: "Unknown", bundleIdentifier: nil, windowTitle: "")
+        }
+
+        if application.processIdentifier == NSRunningApplication.current.processIdentifier,
+           let cached = Self.lastExternalSnapshot {
+            return cached
+        }
+
+        let snapshot = FrontmostSnapshot(
+            appName: application.localizedName ?? "Unknown",
+            bundleIdentifier: application.bundleIdentifier,
+            windowTitle: fetchWindowTitle(for: application)
+        )
+
+        if application.processIdentifier != NSRunningApplication.current.processIdentifier {
+            Self.lastExternalSnapshot = snapshot
+        }
+
+        return snapshot
     }
 
     private func installEventMonitorsIfNeeded() {

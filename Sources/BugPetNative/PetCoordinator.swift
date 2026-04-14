@@ -9,6 +9,7 @@ final class PetCoordinator {
     private let statsStore = CodingStatsStore()
     private lazy var petWindowController = PetWindowController(preferences: preferences)
     private var timer: Timer?
+    private var workspaceObservers: [NSObjectProtocol] = []
     private var isHoveringPet = false
     private var isPanelOpen = false
     private var speechState = PetSpeechState(message: "", kind: .state, visibleUntil: .distantPast)
@@ -22,11 +23,17 @@ final class PetCoordinator {
         petWindowController.onPetSelected = { [weak self] pet in
             self?.setSelectedPet(pet)
         }
+        petWindowController.onPetSlotSelected = { [weak self] pet, slotIndex in
+            self?.setSelectedPet(pet, slotIndex: slotIndex)
+        }
         petWindowController.onUpgrade = { [weak self] in
             self?.upgradeSelectedPet()
         }
         petWindowController.onDowngrade = { [weak self] in
             self?.downgradeSelectedPet()
+        }
+        petWindowController.onUnlockSecondaryPet = { [weak self] pet in
+            self?.unlockSecondaryPet(for: pet)
         }
         petWindowController.onPreferencesChange = { [weak self] in
             self?.refresh()
@@ -34,6 +41,9 @@ final class PetCoordinator {
         petWindowController.onHoverChange = { [weak self] isHovering in
             self?.isHoveringPet = isHovering
             self?.refresh()
+        }
+        petWindowController.onDragStart = { [weak self] in
+            self?.handleDragStart()
         }
         petWindowController.onPanelVisibilityChange = { [weak self] isOpen in
             self?.isPanelOpen = isOpen
@@ -45,10 +55,40 @@ final class PetCoordinator {
         petWindowController.updateLanguage(preferences.language)
 
         refresh()
+        installWorkspaceObservers()
+        startRefreshTimer()
+    }
 
-        timer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+    private func startRefreshTimer() {
+        timer?.invalidate()
+
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.refresh()
+            }
+        }
+
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    private func installWorkspaceObservers() {
+        guard workspaceObservers.isEmpty else {
+            return
+        }
+
+        let notificationCenter = NSWorkspace.shared.notificationCenter
+        let names: [Notification.Name] = [
+            NSWorkspace.didActivateApplicationNotification,
+            NSWorkspace.didLaunchApplicationNotification,
+            NSWorkspace.didTerminateApplicationNotification,
+        ]
+
+        workspaceObservers = names.map { name in
+            notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    self?.refresh()
+                }
             }
         }
     }
@@ -56,7 +96,8 @@ final class PetCoordinator {
     private func refresh() {
         let reading = activityMonitor.read(whitelistApps: preferences.selectedWhitelistApps)
         let selectedPet = preferences.selectedPet
-        let selectedSnapshot = growthEngine.getSnapshot(for: selectedPet)
+        let selectedSlotIndex = normalizedSelectedSlotIndex(for: selectedPet)
+        let selectedSnapshot = growthEngine.getSnapshot(for: selectedPet, slotIndex: selectedSlotIndex)
         let stateUpdate = stateEngine.update(
             reading: reading,
             selectedPet: selectedPet,
@@ -72,9 +113,11 @@ final class PetCoordinator {
             state: stateUpdate.state,
             isCodingContext: stateUpdate.isCodingContext,
             selectedPet: selectedPet,
+            slotIndex: selectedSlotIndex,
             now: reading.sampleDate
         )
         let allSnapshots = growthEngine.getAllSnapshots()
+        let secondarySnapshots = growthEngine.getAllSecondarySnapshots()
         let statsSummary = statsStore.summary(now: reading.sampleDate)
 
         syncSpeech(
@@ -93,8 +136,8 @@ final class PetCoordinator {
 
         let renderModel = PetRenderModel(
             selectedPet: selectedPet,
-            selectedPetLevel: allSnapshots[selectedPet]?.level ?? .one,
-            petDisplaySize: preferences.petDisplaySize,
+            selectedPetLevel: selectedSnapshot.level,
+            petDisplayScale: preferences.petDisplayScale,
             showsStatusBar: preferences.showsStatusBar,
             state: stateUpdate.state,
             appName: stateUpdate.appName,
@@ -118,7 +161,9 @@ final class PetCoordinator {
                 language: preferences.language,
                 theme: preferences.panelTheme,
                 selectedPet: selectedPet,
+                selectedPetSlotIndex: selectedSlotIndex,
                 snapshots: allSnapshots,
+                secondarySnapshots: secondarySnapshots,
                 todos: preferences.todos,
                 statsSummary: statsSummary,
                 currentAppName: stateUpdate.appName,
@@ -149,7 +194,8 @@ final class PetCoordinator {
         petWindowController.updateLanguage(language)
 
         let selectedPet = preferences.selectedPet
-        let selectedSnapshot = growthEngine.getSnapshot(for: selectedPet)
+        let selectedSlotIndex = normalizedSelectedSlotIndex(for: selectedPet)
+        let selectedSnapshot = growthEngine.getSnapshot(for: selectedPet, slotIndex: selectedSlotIndex)
         let now = Date()
 
         if speechState.kind == .levelUp, now < levelUpVisibleUntil, selectedSnapshot.level != .one {
@@ -175,9 +221,10 @@ final class PetCoordinator {
         refresh()
     }
 
-    private func setSelectedPet(_ pet: PetKind) {
+    private func setSelectedPet(_ pet: PetKind, slotIndex: Int = 0) {
         preferences.selectedPet = pet
-        let snapshot = growthEngine.getSnapshot(for: pet)
+        preferences.selectedPetSlotIndex = normalizedSlotIndex(slotIndex, for: pet)
+        let snapshot = growthEngine.getSnapshot(for: pet, slotIndex: preferences.selectedPetSlotIndex)
         let reading = activityMonitor.read(whitelistApps: preferences.selectedWhitelistApps)
         let stateUpdate = stateEngine.update(
             reading: reading,
@@ -195,9 +242,25 @@ final class PetCoordinator {
         refresh()
     }
 
+    private func handleDragStart() {
+        let pet = preferences.selectedPet
+        let level = growthEngine.getSnapshot(for: pet).level
+        let message = SpeechCatalog.dragLine(
+            for: pet,
+            level: level,
+            language: preferences.language,
+            avoiding: speechState.message
+        )
+        let visibleUntil = Date().addingTimeInterval(2.8)
+        lastStateMessage = message
+        stateEngine.overrideMessage(message, visibleUntil: visibleUntil)
+        speechState = PetSpeechState(message: message, kind: .state, visibleUntil: visibleUntil)
+        refresh()
+    }
+
     private func upgradeSelectedPet() {
         let pet = preferences.selectedPet
-        let snapshot = growthEngine.jumpToNextLevel(for: pet)
+        let snapshot = growthEngine.jumpToNextLevel(for: pet, slotIndex: normalizedSelectedSlotIndex(for: pet))
         if snapshot.leveledUp {
             levelUpVisibleUntil = Date().addingTimeInterval(5)
             speechState = PetSpeechState(
@@ -211,8 +274,27 @@ final class PetCoordinator {
 
     private func downgradeSelectedPet() {
         let pet = preferences.selectedPet
-        _ = growthEngine.jumpToPreviousLevel(for: pet)
+        _ = growthEngine.jumpToPreviousLevel(for: pet, slotIndex: normalizedSelectedSlotIndex(for: pet))
         refresh()
+    }
+
+    private func unlockSecondaryPet(for pet: PetKind) {
+        if growthEngine.unlockSecondary(for: pet) != nil {
+            setSelectedPet(pet, slotIndex: 1)
+            return
+        }
+        refresh()
+    }
+
+    private func normalizedSelectedSlotIndex(for pet: PetKind) -> Int {
+        normalizedSlotIndex(preferences.selectedPetSlotIndex, for: pet)
+    }
+
+    private func normalizedSlotIndex(_ slotIndex: Int, for pet: PetKind) -> Int {
+        if slotIndex == 1, growthEngine.getSecondarySnapshot(for: pet) != nil {
+            return 1
+        }
+        return 0
     }
 
     private func makeDebugText(from update: PetStateUpdate, language: AppLanguage) -> String {
